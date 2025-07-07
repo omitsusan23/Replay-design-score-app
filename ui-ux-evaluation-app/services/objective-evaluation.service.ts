@@ -34,7 +34,7 @@ export class ObjectiveEvaluationService {
         
       case 'awwwards':
         // Awwwardsの評価システム (既に0-10スケール)
-        return (externalScores.overall || 0) * 10;
+        return ((externalScores.overall as number) || 0) * 10;
         
       default:
         // 汎用的な正規化
@@ -255,14 +255,14 @@ export class ObjectiveEvaluationService {
   /**
    * 色彩・コントラストスコアの詳細計算
    */
-  private static calculateColorScore(colorMetrics: ColorMetrics): number {
+  private static calculateColorScore(colorMetrics: any): number {
     let score = 0;
     let factors = 0;
 
     // WCAGコントラスト比スコア (40%)
     if (Object.keys(colorMetrics.contrast_ratios).length > 0) {
-      const contrastScores = Object.values(colorMetrics.contrast_ratios);
-      const avgContrast = contrastScores.reduce((a, b) => a + b, 0) / contrastScores.length;
+      const contrastScores = Object.values(colorMetrics.contrast_ratios) as number[];
+      const avgContrast = contrastScores.reduce((a: number, b: number) => a + b, 0) / contrastScores.length;
       const wcagScore = Math.min(avgContrast / 7, 1); // 7:1が最高スコア
       score += wcagScore * 0.4;
       factors += 0.4;
@@ -292,7 +292,7 @@ export class ObjectiveEvaluationService {
   /**
    * レイアウトスコアの詳細計算
    */
-  private static calculateLayoutScore(layoutMetrics: LayoutMetrics): number {
+  private static calculateLayoutScore(layoutMetrics: any): number {
     let score = 0;
     let factors = 0;
 
@@ -323,7 +323,7 @@ export class ObjectiveEvaluationService {
   /**
    * アクセシビリティスコアの詳細計算
    */
-  private static calculateAccessibilityScore(accessibilityMetrics: AccessibilityMetrics): number {
+  private static calculateAccessibilityScore(accessibilityMetrics: any): number {
     let score = 0;
     let factors = 0;
 
@@ -353,7 +353,7 @@ export class ObjectiveEvaluationService {
   /**
    * UI要素スコアの詳細計算
    */
-  private static calculateUIElementsScore(uiElements: UIElements): number {
+  private static calculateUIElementsScore(uiElements: any): number {
     let score = 0;
     let factors = 0;
 

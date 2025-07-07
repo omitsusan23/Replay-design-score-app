@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { supabase } from '@/lib/supabase';
-import { UIScore } from '@/types';
+import { UIScore } from '@/types/index';
 import { PredictionModelService } from './prediction-model.service';
 import { ImageAnalysisService } from './image-analysis.service';
 import { ObjectiveEvaluationService } from './objective-evaluation.service';

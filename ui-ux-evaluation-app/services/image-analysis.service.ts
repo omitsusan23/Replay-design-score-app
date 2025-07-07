@@ -612,7 +612,7 @@ export class ImageAnalysisService {
 
     // 通常テキストの基準: AA (4.5:1), AAA (7:1)
     // 大きいテキストの基準: AA (3:1), AAA (4.5:1)
-    for (const ratio of Object.values(colorMetrics.contrast_ratios)) {
+    for (const ratio of Object.values(colorMetrics.contrast_ratios) as number[]) {
       totalContrasts++;
       
       // 通常テキストとして評価

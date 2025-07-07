@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import UISubmissionForm from '../../../../components/ui-submission-form';
-import { EvaluationResponse } from '../../../../services/ai-evaluation';
+import UISubmissionForm from '@/components/ui-submission-form';
+import { EvaluationResponse } from '@/services/ai-evaluation';
 
 export default function Home() {
   const [evaluationResult, setEvaluationResult] = useState<EvaluationResponse | null>(null);
@@ -77,7 +77,7 @@ export default function Home() {
                     return (
                       <div key={key} className="flex justify-between items-center p-3 bg-gray-50 rounded">
                         <span className="text-sm text-gray-700">{categoryNames[key]}</span>
-                        <span className="font-semibold text-gray-900">{score}/20</span>
+                        <span className="font-semibold text-gray-900">{score as number}/20</span>
                       </div>
                     );
                   })}
