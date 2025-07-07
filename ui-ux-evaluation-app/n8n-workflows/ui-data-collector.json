@@ -1,0 +1,163 @@
+{
+  "name": "UI Data Collector",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ui-data-collector",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const { jobId, platform } = items[0].json;\n\n// プラットフォーム別のURL生成\nlet urls = [];\nswitch(platform) {\n  case 'dribbble':\n    urls = [\n      'https://dribbble.com/shots/popular',\n      'https://dribbble.com/shots/recent'\n    ];\n    break;\n  case 'behance':\n    urls = [\n      'https://www.behance.net/galleries/ui-ux',\n      'https://www.behance.net/galleries/web-design'\n    ];\n    break;\n  case 'awwwards':\n    urls = [\n      'https://www.awwwards.com/websites/web-design/',\n      'https://www.awwwards.com/websites/ui-design/'\n    ];\n    break;\n}\n\nreturn urls.map(url => ({\n  json: {\n    jobId,\n    platform,\n    url,\n    timestamp: new Date().toISOString()\n  }\n}));"
+      },
+      "id": "prepare-urls",
+      "name": "Prepare URLs",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$json[\"url\"]}}",
+        "options": {
+          "timeout": 30000
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        }
+      },
+      "id": "http-request",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "mode": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "designs",
+              "cssSelector": ".shot-thumbnail, .project-cover, .site-item",
+              "returnArray": true,
+              "multiple": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "html-extract",
+      "name": "HTML Extract",
+      "type": "n8n-nodes-base.htmlExtract",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const platform = items[0].json.platform;\nconst designs = items[0].json.designs || [];\n\n// プラットフォーム別のパース処理\nconst parsedDesigns = designs.map(html => {\n  const cheerio = require('cheerio');\n  const $ = cheerio.load(html);\n  \n  let data = {};\n  \n  switch(platform) {\n    case 'dribbble':\n      data = {\n        title: $('.shot-title').text().trim(),\n        imageUrl: $('.shot-image img').attr('src'),\n        likes: parseInt($('.likes-count').text()) || 0,\n        views: parseInt($('.views-count').text()) || 0,\n        saves: parseInt($('.saves-count').text()) || 0,\n        sourceUrl: $('.shot-link').attr('href')\n      };\n      break;\n      \n    case 'behance':\n      data = {\n        title: $('.project-name').text().trim(),\n        imageUrl: $('.project-cover img').attr('src'),\n        appreciations: parseInt($('.project-appreciations').text()) || 0,\n        views: parseInt($('.project-views').text()) || 0,\n        sourceUrl: $('.project-link').attr('href')\n      };\n      break;\n      \n    case 'awwwards':\n      data = {\n        title: $('.site-name').text().trim(),\n        imageUrl: $('.site-thumbnail img').attr('src'),\n        score: parseFloat($('.site-score').text()) || 0,\n        votes: parseInt($('.site-votes').text()) || 0,\n        sourceUrl: $('.site-link').attr('href')\n      };\n      break;\n  }\n  \n  return {\n    ...data,\n    platform,\n    collectedAt: new Date().toISOString()\n  };\n});\n\nreturn parsedDesigns.map(design => ({ json: design }));"
+      },
+      "id": "parse-data",
+      "name": "Parse Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "objective_ui_evaluations",
+        "columns": "title,source_url,image_url,external_scores,source_platform",
+        "additionalFields": {}
+      },
+      "id": "supabase-insert",
+      "name": "Supabase",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1250, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "1",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": "public",
+        "table": "data_collection_jobs",
+        "updateKey": "id",
+        "columns": "status,completed_at,items_collected",
+        "additionalFields": {}
+      },
+      "id": "update-job-status",
+      "name": "Update Job Status",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1450, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "1",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"success\": true, \"message\": \"Data collection completed\", \"itemsCollected\": {{$json[\"items_collected\"]}}}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1650, 300]
+    }
+  ],
+  "connections": {
+    "webhook-trigger": {
+      "main": [[{"node": "prepare-urls", "type": "main", "index": 0}]]
+    },
+    "prepare-urls": {
+      "main": [[{"node": "http-request", "type": "main", "index": 0}]]
+    },
+    "http-request": {
+      "main": [[{"node": "html-extract", "type": "main", "index": 0}]]
+    },
+    "html-extract": {
+      "main": [[{"node": "parse-data", "type": "main", "index": 0}]]
+    },
+    "parse-data": {
+      "main": [[{"node": "supabase-insert", "type": "main", "index": 0}]]
+    },
+    "supabase-insert": {
+      "main": [[{"node": "update-job-status", "type": "main", "index": 0}]]
+    },
+    "update-job-status": {
+      "main": [[{"node": "webhook-response", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "1.0.0",
+  "triggerCount": 0
+}

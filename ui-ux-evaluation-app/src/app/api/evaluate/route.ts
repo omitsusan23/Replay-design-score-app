@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { evaluateUI } from '../../../../../services/ai-evaluation';
+import { IntegratedEvaluationService } from '@/services/integrated-evaluation.service';
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,14 +33,14 @@ export async function POST(request: NextRequest) {
       imageUrl
     };
 
-    const result = await evaluateUI(evaluationRequest);
+    const result = await IntegratedEvaluationService.evaluateUI(evaluationRequest);
 
     return NextResponse.json(result);
   } catch (error) {
     console.error('Evaluation error:', error);
     
     return NextResponse.json(
-      { error: 'AI評価中にエラーが発生しました' },
+      { error: '統合評価中にエラーが発生しました' },
       { status: 500 }
     );
   }
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({ 
-    message: 'AI評価APIエンドポイント',
+    message: '統合UI評価APIエンドポイント（客観的スコアリング + AI説明文生成）',
     methods: ['POST'],
     parameters: {
       title: 'プロジェクト名 (必須)',
@@ -56,6 +56,7 @@ export async function GET() {
       submitType: 'image | figma',
       figmaLink: 'Figmaリンク (figma選択時)',
       image: '画像ファイル (image選択時)'
-    }
+    },
+    note: 'スコアリングは客観的データに基づき、AIは説明文生成のみを担当します'
   });
 }
