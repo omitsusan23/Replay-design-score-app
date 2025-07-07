@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import UISubmissionForm from '../../../components/ui-submission-form';
-import { EvaluationResponse } from '../../../services/ai-evaluation';
+import UISubmissionForm from '../../../../components/ui-submission-form';
+import { EvaluationResponse } from '../../../../services/ai-evaluation';
 
 export default function Home() {
   const [evaluationResult, setEvaluationResult] = useState<EvaluationResponse | null>(null);
