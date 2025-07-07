@@ -17,50 +17,70 @@ export interface EvaluationRequest {
   title: string;
 }
 
+export interface SubjectiveFeedback {
+  visual_impact: string;
+  user_experience: string;
+  brand_consistency: string;
+  trend_alignment: string;
+  improvement_suggestions: string[];
+}
+
+export interface AIFeedbackResponse {
+  subjective_feedback: SubjectiveFeedback;
+  overall_feedback: string;
+  tone: 'positive' | 'neutral' | 'constructive';
+}
+
 export interface EvaluationResponse {
   scores: UIScore;
   feedback: string;
   totalScore: number;
 }
 
-const EVALUATION_PROMPT = `
-あなたはUI/UXの専門家です。提供されたUI設計を以下の7つの観点で評価し、各項目20点満点で採点してください。
+const FEEDBACK_PROMPT = `
+あなたはUI/UXの専門家です。提供されたUI設計とその客観的分析結果を基に、主観的なフィードバックを提供してください。
 
-評価項目：
-1. 配色・コントラスト (color_contrast)
-2. 情報整理・密度 (information_organization) 
-3. 視線誘導・ナビゲーション (visual_guidance)
-4. アクセシビリティ (accessibility)
-5. UIの一貫性・余白 (ui_consistency)
-6. 第一印象・ビジュアルインパクト (visual_impact)
-7. CTAの明瞭さ (cta_clarity)
+客観的スコアは既に算出されているので、スコアの計算は不要です。
+代わりに、以下の観点から実用的なフィードバックを提供してください：
 
-各項目について具体的な改善点を含む詳細なフィードバックを提供してください。
+1. 第一印象・ビジュアルインパクト
+2. ユーザー体験の質
+3. ブランドアイデンティティとの整合性
+4. トレンドとの関連性
+5. 改善提案
+
 レスポンスは以下のJSON形式で返してください：
 
 {
-  "scores": {
-    "color_contrast": 15,
-    "information_organization": 17,
-    "visual_guidance": 14,
-    "accessibility": 16,
-    "ui_consistency": 18,
-    "visual_impact": 13,
-    "cta_clarity": 19
+  "subjective_feedback": {
+    "visual_impact": "第一印象に関するコメント",
+    "user_experience": "ユーザー体験に関するコメント", 
+    "brand_consistency": "ブランドとの整合性に関するコメント",
+    "trend_alignment": "トレンドとの関連性に関するコメント",
+    "improvement_suggestions": [
+      "具体的な改善提案1",
+      "具体的な改善提案2"
+    ]
   },
-  "feedback": "詳細なフィードバック文章",
-  "totalScore": 112
+  "overall_feedback": "総合的なフィードバック文章",
+  "tone": "positive" | "neutral" | "constructive"
 }
 `;
 
-export async function evaluateUI(request: EvaluationRequest): Promise<EvaluationResponse> {
+export async function generateSubjectiveFeedback(
+  request: EvaluationRequest, 
+  objectiveScore?: number,
+  technicalMetrics?: any
+): Promise<AIFeedbackResponse> {
   try {
     const message = `
 タイトル: ${request.title}
 説明: ${request.description}
 ${request.figmaLink ? `Figmaリンク: ${request.figmaLink}` : ''}
+${objectiveScore ? `客観的スコア: ${objectiveScore.toFixed(1)}点` : ''}
+${technicalMetrics ? `技術指標: ${JSON.stringify(technicalMetrics, null, 2)}` : ''}
 
-${EVALUATION_PROMPT}
+${FEEDBACK_PROMPT}
     `;
 
     const response = await anthropic.messages.create({
@@ -95,8 +115,33 @@ ${EVALUATION_PROMPT}
 
     throw new Error('Invalid response format');
   } catch (error) {
-    console.error('AI evaluation error:', error);
-    throw new Error('AI評価に失敗しました');
+    console.error('AI feedback generation error:', error);
+    throw new Error('AI フィードバック生成に失敗しました');
+  }
+}
+
+// 後方互換性のための旧関数（非推奨）
+export async function evaluateUI(request: EvaluationRequest): Promise<EvaluationResponse> {
+  try {
+    const feedback = await generateSubjectiveFeedback(request);
+    
+    // 旧形式に変換（スコアは0で返す）
+    return {
+      scores: {
+        color_contrast: 0,
+        information_organization: 0,
+        visual_guidance: 0,
+        accessibility: 0,
+        ui_consistency: 0,
+        visual_impact: 0,
+        cta_clarity: 0
+      },
+      feedback: feedback.overall_feedback,
+      totalScore: 0
+    };
+  } catch (error) {
+    console.error('Backward compatibility evaluation error:', error);
+    throw new Error('評価に失敗しました');
   }
 }
 

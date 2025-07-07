@@ -49,55 +49,38 @@ export class ObjectiveEvaluationService {
   }
 
   /**
-   * 画像解析メトリクスから技術的スコアを計算
+   * 画像解析メトリクスから技術的スコアを計算（強化版）
    */
   static calculateTechnicalScore(metrics: UIImageMetrics): number {
     let score = 0;
     let weights = 0;
 
-    // 色彩スコア (25%)
+    // 色彩・コントラストスコア (30%)
     if (metrics.color_metrics) {
-      const colorScore = (
-        metrics.color_metrics.color_harmony_score * 0.4 +
-        (Object.keys(metrics.color_metrics.contrast_ratios).length > 0 ? 0.6 : 0)
-      );
-      score += colorScore * 25;
-      weights += 25;
-    }
-
-    // レイアウトスコア (30%)
-    if (metrics.layout_metrics) {
-      const layoutScore = (
-        metrics.layout_metrics.grid_alignment * 0.2 +
-        metrics.layout_metrics.white_space_ratio * 0.2 +
-        metrics.layout_metrics.visual_hierarchy_score * 0.3 +
-        metrics.layout_metrics.balance_score * 0.15 +
-        metrics.layout_metrics.consistency_score * 0.15
-      );
-      score += layoutScore * 30;
+      const colorScore = this.calculateColorScore(metrics.color_metrics);
+      score += colorScore * 30;
       weights += 30;
     }
 
-    // アクセシビリティスコア (25%)
-    if (metrics.accessibility_metrics) {
-      const accessibilityScore = (
-        metrics.accessibility_metrics.wcag_aa_compliant * 0.6 +
-        (metrics.accessibility_metrics.color_blind_safe ? 0.2 : 0) +
-        metrics.accessibility_metrics.alt_text_coverage * 0.2
-      );
-      score += accessibilityScore * 25;
+    // レイアウトスコア (25%)
+    if (metrics.layout_metrics) {
+      const layoutScore = this.calculateLayoutScore(metrics.layout_metrics);
+      score += layoutScore * 25;
       weights += 25;
     }
 
-    // UI要素スコア (20%)
+    // アクセシビリティスコア (30%)
+    if (metrics.accessibility_metrics) {
+      const accessibilityScore = this.calculateAccessibilityScore(metrics.accessibility_metrics);
+      score += accessibilityScore * 30;
+      weights += 30;
+    }
+
+    // UI要素・インタラクションスコア (15%)
     if (metrics.ui_elements) {
-      const uiScore = (
-        metrics.ui_elements.cta_prominence * 0.4 +
-        (metrics.ui_elements.navigation ? 0.3 : 0) +
-        Math.min(metrics.ui_elements.interactive_elements / 10, 1) * 0.3
-      );
-      score += uiScore * 20;
-      weights += 20;
+      const uiScore = this.calculateUIElementsScore(metrics.ui_elements);
+      score += uiScore * 15;
+      weights += 15;
     }
 
     return weights > 0 ? (score / weights) * 100 : 0;
@@ -267,5 +250,186 @@ export class ObjectiveEvaluationService {
     }
 
     return data || [];
+  }
+
+  /**
+   * 色彩・コントラストスコアの詳細計算
+   */
+  private static calculateColorScore(colorMetrics: ColorMetrics): number {
+    let score = 0;
+    let factors = 0;
+
+    // WCAGコントラスト比スコア (40%)
+    if (Object.keys(colorMetrics.contrast_ratios).length > 0) {
+      const contrastScores = Object.values(colorMetrics.contrast_ratios);
+      const avgContrast = contrastScores.reduce((a, b) => a + b, 0) / contrastScores.length;
+      const wcagScore = Math.min(avgContrast / 7, 1); // 7:1が最高スコア
+      score += wcagScore * 0.4;
+      factors += 0.4;
+    }
+
+    // 色の調和スコア (30%)
+    if (colorMetrics.color_harmony_score !== undefined) {
+      score += colorMetrics.color_harmony_score * 0.3;
+      factors += 0.3;
+    }
+
+    // 色の適切な数 (20%)
+    const colorCountScore = this.evaluateColorCount(colorMetrics.color_count);
+    score += colorCountScore * 0.2;
+    factors += 0.2;
+
+    // 鮮やかさバランス (10%)
+    if (colorMetrics.vibrancy_score !== undefined) {
+      const vibrancyScore = this.normalizeVibrancy(colorMetrics.vibrancy_score);
+      score += vibrancyScore * 0.1;
+      factors += 0.1;
+    }
+
+    return factors > 0 ? score / factors : 0;
+  }
+
+  /**
+   * レイアウトスコアの詳細計算
+   */
+  private static calculateLayoutScore(layoutMetrics: LayoutMetrics): number {
+    let score = 0;
+    let factors = 0;
+
+    // グリッド整列性 (25%)
+    score += layoutMetrics.grid_alignment * 0.25;
+    factors += 0.25;
+
+    // 適切な余白比率 (20%)
+    const whiteSpaceScore = this.evaluateWhiteSpaceRatio(layoutMetrics.white_space_ratio);
+    score += whiteSpaceScore * 0.2;
+    factors += 0.2;
+
+    // 視覚階層 (30%)
+    score += layoutMetrics.visual_hierarchy_score * 0.3;
+    factors += 0.3;
+
+    // バランス (15%)
+    score += layoutMetrics.balance_score * 0.15;
+    factors += 0.15;
+
+    // 一貫性 (10%)
+    score += layoutMetrics.consistency_score * 0.1;
+    factors += 0.1;
+
+    return factors > 0 ? score / factors : 0;
+  }
+
+  /**
+   * アクセシビリティスコアの詳細計算
+   */
+  private static calculateAccessibilityScore(accessibilityMetrics: AccessibilityMetrics): number {
+    let score = 0;
+    let factors = 0;
+
+    // WCAG AA準拠 (50%)
+    score += accessibilityMetrics.wcag_aa_compliant * 0.5;
+    factors += 0.5;
+
+    // 色覚異常対応 (20%)
+    score += (accessibilityMetrics.color_blind_safe ? 1 : 0) * 0.2;
+    factors += 0.2;
+
+    // WCAG AAA準拠 (15%)
+    score += accessibilityMetrics.wcag_aaa_compliant * 0.15;
+    factors += 0.15;
+
+    // フォーカス表示 (10%)
+    score += (accessibilityMetrics.focus_indicators ? 1 : 0) * 0.1;
+    factors += 0.1;
+
+    // テキストコントラスト (5%)
+    score += accessibilityMetrics.alt_text_coverage * 0.05;
+    factors += 0.05;
+
+    return factors > 0 ? score / factors : 0;
+  }
+
+  /**
+   * UI要素スコアの詳細計算
+   */
+  private static calculateUIElementsScore(uiElements: UIElements): number {
+    let score = 0;
+    let factors = 0;
+
+    // CTAの際立ち度 (50%)
+    score += uiElements.cta_prominence * 0.5;
+    factors += 0.5;
+
+    // ナビゲーションの存在 (25%)
+    score += (uiElements.navigation ? 1 : 0) * 0.25;
+    factors += 0.25;
+
+    // インタラクティブ要素のバランス (15%)
+    const interactiveScore = this.evaluateInteractiveElements(uiElements.interactive_elements);
+    score += interactiveScore * 0.15;
+    factors += 0.15;
+
+    // ボタンの適切な数 (10%)
+    const buttonScore = this.evaluateButtonCount(uiElements.buttons);
+    score += buttonScore * 0.1;
+    factors += 0.1;
+
+    return factors > 0 ? score / factors : 0;
+  }
+
+  /**
+   * 色数の評価
+   */
+  private static evaluateColorCount(colorCount: number): number {
+    // 2-8色が理想的
+    if (colorCount < 2) return 0.3;
+    if (colorCount <= 8) return 1.0;
+    if (colorCount <= 15) return 0.8;
+    if (colorCount <= 25) return 0.6;
+    return 0.4;
+  }
+
+  /**
+   * 鮮やかさの正規化
+   */
+  private static normalizeVibrancy(vibrancy: number): number {
+    // 0.3-0.7が理想的な範囲
+    if (vibrancy < 0.1) return 0.5; // 単調すぎる
+    if (vibrancy >= 0.3 && vibrancy <= 0.7) return 1.0; // 理想的
+    if (vibrancy > 0.7) return Math.max(0.3, 1.0 - (vibrancy - 0.7) * 2); // 派手すぎる
+    return 0.7 + (vibrancy - 0.1) * 1.5; // 少し地味
+  }
+
+  /**
+   * 余白比率の評価
+   */
+  private static evaluateWhiteSpaceRatio(ratio: number): number {
+    // 0.2-0.4が理想的
+    if (ratio < 0.1) return 0.3; // 詰まりすぎ
+    if (ratio >= 0.2 && ratio <= 0.4) return 1.0; // 理想的
+    if (ratio > 0.4) return Math.max(0.4, 1.0 - (ratio - 0.4) * 2); // 空白過多
+    return 0.5 + (ratio - 0.1) * 5; // やや詰まり気味
+  }
+
+  /**
+   * インタラクティブ要素数の評価
+   */
+  private static evaluateInteractiveElements(count: number): number {
+    if (count === 0) return 0.2; // 要素なし
+    if (count <= 3) return 0.6; // 少なめ
+    if (count <= 8) return 1.0; // 適切
+    if (count <= 15) return 0.8; // やや多め
+    return 0.5; // 多すぎ
+  }
+
+  /**
+   * ボタン数の評価
+   */
+  private static evaluateButtonCount(count: number): number {
+    if (count === 0) return 0.3; // ボタンなし
+    if (count <= 2) return 1.0; // 適切
+    if (count <= 5) return 0.8; // やや多め
+    return 0.6; // 多すぎ
   }
 }
