@@ -1,130 +1,205 @@
-# UI/UX評価アプリ - 社員育成プラットフォーム
+# UI/UX Evaluation App - Employee Development Platform
 
-## 🎯 プロジェクト概要
+## Project Overview
 
-社員育成に特化したAI-powered UI/UX評価アプリケーション。Claude/GPTを活用し、具体的なフィードバックで継続的な学習と成長を支援します。
+An AI-powered UI/UX evaluation application designed for employee development. Using Claude and GPT APIs, this application provides comprehensive feedback to support continuous learning and professional growth in UI/UX design.
 
-## 🧱 主要機能
-
-### 1. UI提出・評価システム
-- Figmaリンクまたは画像アップロード対応
-- AI自動採点（7項目×20点満点）
-  - 配色・コントラスト
-  - 情報整理・密度
-  - 視線誘導・ナビゲーション
-  - アクセシビリティ
-  - UIの一貫性・余白
-  - 第一印象・ビジュアルインパクト
-  - CTAの明瞭さ
-
-### 2. 成長可視化ダッシュボード
-- スコア推移グラフ
-- カテゴリ別パフォーマンス
-- ベストプラクティス事例
-- 改善トレンド分析
-
-### 3. 外部データ自動収集
-- UIギャラリーサイトからの自動収集
-- AI評価によるベンチマークデータ構築
-- Playwright + n8n自動化対応
-
-## 🔧 技術スタック
-
-### Frontend
-- **Next.js 15** (App Router)
-- **TypeScript**
-- **Tailwind CSS**
-- **Chart.js + React Charts**
-- **React Dropzone**
-- **Heroicons**
-
-### Backend & Database
-- **Supabase** (PostgreSQL + Auth + Storage)
-- **Row Level Security (RLS)**
-
-### AI Integration
-- **Claude API** (@anthropic-ai/sdk)
-- **OpenAI API**
-- 画像解析とテキスト評価
-
-### 自動化 (予定)
-- **n8n** (ワークフロー自動化)
-- **Playwright** (UIデータ収集)
-
-## 📁 プロジェクト構造
+## Project Structure
 
 ```
-/
-├── src/app/              # Next.js App Router
-├── components/           # React コンポーネント
-├── lib/                  # ユーティリティとDB設定
-├── services/             # API呼び出しとビジネスロジック
-├── types/                # TypeScript型定義
-└── utils/                # ヘルパー関数
+Replay-design-score-app/
+│
+├── README.md                    # This file
+├── components/                  # Shared React components
+│   └── ui-submission-form.tsx
+├── lib/                        # Database schemas and utilities
+│   ├── database.sql           # Main database schema
+│   ├── database-improvements.sql # Additional DB improvements
+│   └── supabase.ts           # Supabase client configuration
+├── services/                   # AI evaluation service
+│   └── ai-evaluation.ts
+├── types/                      # TypeScript type definitions
+│   └── index.ts
+└── ui-ux-evaluation-app/      # Main Next.js application
+    ├── package.json
+    ├── next.config.ts
+    ├── tsconfig.json
+    ├── src/
+    │   └── app/               # Next.js 15 App Router
+    │       ├── api/           # API routes
+    │       │   ├── collect-data/
+    │       │   └── evaluate/
+    │       ├── layout.tsx
+    │       ├── page.tsx
+    │       └── globals.css
+    ├── components/            # Application components
+    ├── services/              # Business logic services
+    │   ├── ai-evaluation.ts
+    │   ├── data-collection.service.ts
+    │   ├── image-analysis.service.ts
+    │   ├── integrated-evaluation.service.ts
+    │   ├── objective-evaluation.service.ts
+    │   └── prediction-model.service.ts
+    ├── types/                 # Application types
+    ├── lib/                   # Application utilities
+    ├── public/                # Static assets
+    └── n8n-workflows/         # n8n workflow configurations
 ```
 
-## 🗄️ データベース設計
+## Key Features
 
-### profiles
-- ユーザー情報とロール管理
+### 1. UI Submission & Evaluation System
+- Support for Figma links or image uploads
+- AI-powered automatic scoring (7 criteria × 20 points max)
+  - Color & Contrast
+  - Information Organization & Density
+  - Visual Navigation
+  - Accessibility
+  - UI Consistency & Spacing
+  - First Impression & Visual Impact
+  - CTA Clarity
 
-### ui_submissions
-- UI提出データと評価結果
+### 2. Growth Visualization Dashboard
+- Score progression charts
+- Category-based performance metrics
+- Best practice examples
+- Improvement trend analysis
 
-### external_ui_data
-- 外部収集UIデータとベンチマーク
+### 3. External Data Collection
+- Automated UI gallery data collection
+- AI-evaluated benchmark data
+- Playwright + n8n automation support
 
-## 🚀 セットアップ
+## Technology Stack
 
-### 1. 環境変数設定
+- **Frontend**: Next.js 15 (App Router), TypeScript, Tailwind CSS
+- **Backend**: Supabase (PostgreSQL + Auth + Storage)
+- **AI Integration**: Claude API, OpenAI API
+- **Visualization**: Chart.js, React Charts
+- **File Handling**: React Dropzone, Sharp
+- **Icons**: Heroicons
+
+## Setup Instructions
+
+### Prerequisites
+- Node.js 18+ and npm
+- Supabase account
+- Claude API key (Anthropic)
+- OpenAI API key
+
+### 1. Clone the Repository
 ```bash
-cp .env.local.example .env.local
-# 以下を設定:
-# NEXT_PUBLIC_SUPABASE_URL
-# NEXT_PUBLIC_SUPABASE_ANON_KEY
-# SUPABASE_SERVICE_ROLE_KEY
-# ANTHROPIC_API_KEY
-# OPENAI_API_KEY
+git clone <repository-url>
+cd Replay-design-score-app
 ```
 
-### 2. Supabaseセットアップ
-```sql
--- lib/database.sql を実行
--- RLS、トリガー、ポリシーが自動設定
-```
-
-### 3. 開発サーバー起動
+### 2. Install Dependencies
 ```bash
+cd ui-ux-evaluation-app
 npm install
+```
+
+### 3. Environment Configuration
+Create a `.env.local` file in the `ui-ux-evaluation-app` directory:
+
+```bash
+# Supabase Configuration
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+
+# AI API Keys
+ANTHROPIC_API_KEY=your_anthropic_api_key
+OPENAI_API_KEY=your_openai_api_key
+```
+
+### 4. Database Setup
+1. Go to your Supabase project dashboard
+2. Navigate to SQL Editor
+3. Execute the SQL scripts in order:
+   - First: `/lib/database.sql` (creates tables, indexes, and RLS policies)
+   - Second: `/lib/database-improvements.sql` (if exists, for additional features)
+
+### 5. Run the Application
+
+#### Development Mode
+```bash
+cd ui-ux-evaluation-app
 npm run dev
 ```
+The application will be available at `http://localhost:3000`
 
-## 🎨 設計思想
+#### Production Build
+```bash
+cd ui-ux-evaluation-app
+npm run build
+npm start
+```
 
-### 育成重視アプローチ
-- **気づき促進**: 具体的な改善提案
-- **成長可視化**: 進歩の定量的追跡
-- **継続学習**: ベンチマークとの比較
+## Available Scripts
 
-### AI活用戦略
-- **マルチAI**: Claude + GPT併用
-- **画像解析**: 視覚的UI評価
-- **自然言語フィードバック**: 理解しやすい説明
+From the `ui-ux-evaluation-app` directory:
 
-### スケーラビリティ
-- **外部連携**: MCP、API無制限活用
-- **自動化**: データ収集から評価まで
-- **拡張性**: 新評価軸の追加容易
+- `npm run dev` - Start development server with Turbopack
+- `npm run build` - Build for production
+- `npm start` - Start production server
+- `npm run lint` - Run ESLint
 
-## 📈 今後の拡張予定
+## API Endpoints
 
-- [ ] Slack/Teams通知連携
-- [ ] n8n自動ワークフロー構築
-- [ ] ChromaDB ベクトル検索
-- [ ] A/Bテスト機能
-- [ ] 多言語対応
-- [ ] モバイルアプリ化
+- `POST /api/evaluate` - Submit UI for evaluation
+- `POST /api/collect-data` - Collect external UI data
 
-## 🏗️ 開発方針
+## Database Schema
 
-**人間主導AI開発**: 構想→設計→実装の役割分担により、効率的かつ高品質な開発を実現。
+### Tables
+1. **profiles** - User profiles and role management
+2. **ui_submissions** - UI submissions and evaluation results
+3. **external_ui_data** - External UI benchmarking data
+
+### Security
+- Row Level Security (RLS) enabled
+- User-specific data access policies
+- Admin role for full data access
+
+## Development Guidelines
+
+1. **Code Structure**: Follow the existing pattern of separating concerns between components, services, and types
+2. **Type Safety**: Use TypeScript interfaces for all data structures
+3. **Error Handling**: Implement proper error handling in all API routes
+4. **State Management**: Use React hooks and context where appropriate
+5. **Styling**: Use Tailwind CSS utility classes
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Database Connection Failed**
+   - Verify Supabase credentials in `.env.local`
+   - Check if database tables are created
+
+2. **AI API Errors**
+   - Ensure API keys are valid and have sufficient credits
+   - Check rate limits for both Claude and OpenAI
+
+3. **Build Errors**
+   - Clear `.next` folder and `node_modules`
+   - Run `npm install` again
+   - Check TypeScript errors with `npm run build`
+
+## Future Enhancements
+
+- [ ] Slack/Teams notification integration
+- [ ] Advanced n8n workflow automation
+- [ ] ChromaDB vector search implementation
+- [ ] A/B testing functionality
+- [ ] Multi-language support
+- [ ] Mobile application
+
+## Contributing
+
+Please follow the existing code style and ensure all tests pass before submitting pull requests.
+
+## License
+
+[Add your license information here]
