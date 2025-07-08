@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ImageAnalysisService } from '@/services/image-analysis.service';
 import { ObjectiveEvaluationService } from '@/services/objective-evaluation.service';
 import { generateSubjectiveFeedback } from '@/services/ai-evaluation';
+import { UIImageMetrics } from '@/types/objective-evaluation';
 
 export async function POST(request: NextRequest) {
   try {
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
         
         const scoreCalculation = ObjectiveEvaluationService.calculateObjectiveScore(
           mockExternalScores,
-          imageMetrics as any
+          imageMetrics ? imageMetrics as UIImageMetrics : undefined
         );
         
         objectiveScore = scoreCalculation.final_score;
