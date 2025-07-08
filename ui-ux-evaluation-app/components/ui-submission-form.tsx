@@ -5,7 +5,7 @@ import { useDropzone } from 'react-dropzone';
 import { CloudArrowUpIcon, PhotoIcon, LinkIcon } from '@heroicons/react/24/outline';
 
 interface UISubmissionFormProps {
-  onSubmit: (data: FormData) => void;
+  onSubmit?: (data: FormData) => void;
   isLoading?: boolean;
 }
 
@@ -26,7 +26,7 @@ export default function UISubmissionForm({ onSubmit, isLoading = false }: UISubm
     }
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const formData = new FormData();
@@ -40,7 +40,29 @@ export default function UISubmissionForm({ onSubmit, isLoading = false }: UISubm
       formData.append('image', uploadedFile);
     }
 
-    onSubmit(formData);
+    if (onSubmit) {
+      onSubmit(formData);
+    } else {
+      // デフォルトの処理: 直接APIを呼び出す
+      try {
+        const response = await fetch('/api/evaluate', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error('評価に失敗しました');
+        }
+
+        const result = await response.json();
+        // 結果をコンソールに出力（後でUI表示に変更可能）
+        console.log('評価結果:', result);
+        alert('評価が完了しました。結果をコンソールで確認してください。');
+      } catch (error) {
+        console.error('Error:', error);
+        alert('評価中にエラーが発生しました。');
+      }
+    }
   };
 
   const isValid = title && description && (
