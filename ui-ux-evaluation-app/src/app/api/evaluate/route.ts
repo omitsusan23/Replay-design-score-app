@@ -1,127 +1,161 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ImageAnalysisService } from '@/services/image-analysis.service';
-import { ObjectiveEvaluationService } from '@/services/objective-evaluation.service';
-import { generateSubjectiveFeedback } from '@/services/ai-evaluation';
-import { UIImageMetrics } from '@/types/objective-evaluation';
+import { createClient } from '@supabase/supabase-js';
+import { evaluateDesign } from '@/services/ai-evaluation';
+import { v4 as uuidv4 } from 'uuid';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!
+);
 
 export async function POST(request: NextRequest) {
   try {
+    // 認証チェック
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+    }
+
+    const token = authHeader.substring(7);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      return NextResponse.json({ error: '無効なトークンです' }, { status: 401 });
+    }
+
+    // フォームデータの取得
     const formData = await request.formData();
-    
-    const title = formData.get('title') as string;
-    const description = formData.get('description') as string;
+    const projectName = formData.get('projectName') as string;
+    const description = formData.get('description') as string || '';
+    const structureNote = formData.get('structureNote') as string || '';
     const submitType = formData.get('submitType') as string;
-    const figmaLink = formData.get('figmaLink') as string;
+    const figmaUrl = formData.get('figmaUrl') as string;
     const imageFile = formData.get('image') as File;
 
-    if (!title || !description) {
+    // 入力検証
+    if (!projectName) {
       return NextResponse.json(
-        { error: 'タイトルと説明は必須です' },
+        { error: 'プロジェクト名は必須です' }, 
         { status: 400 }
       );
     }
 
-    let imageUrl: string | undefined;
-    let imageBuffer: Buffer | undefined;
-    
-    if (submitType === 'image' && imageFile) {
-      const buffer = await imageFile.arrayBuffer();
-      imageBuffer = Buffer.from(buffer);
-      const base64 = Buffer.from(buffer).toString('base64');
-      imageUrl = `data:${imageFile.type};base64,${base64}`;
-    }
-
-    // 1. 画像分析による定量的特徴量抽出
-    let imageMetrics;
-    let objectiveScore = 0;
-    
-    if (imageBuffer) {
-      try {
-        imageMetrics = await ImageAnalysisService.analyzeUIImage(imageUrl!);
-        
-        // 2. 客観的スコア計算（外部スコアは仮のデータ）
-        const mockExternalScores = {
-          platform: 'user_submission',
-          likes: 0,
-          views: 1
-        };
-        
-        const scoreCalculation = ObjectiveEvaluationService.calculateObjectiveScore(
-          mockExternalScores,
-          imageMetrics ? imageMetrics as UIImageMetrics : undefined
-        );
-        
-        objectiveScore = scoreCalculation.final_score;
-      } catch (error) {
-        console.warn('Image analysis failed:', error);
-        // 画像分析に失敗した場合はデフォルト値を使用
-        objectiveScore = 50;
-      }
-    }
-
-    // 3. AI による主観的フィードバック生成
-    const evaluationRequest = {
-      title,
-      description,
-      figmaLink: submitType === 'figma' ? figmaLink : undefined,
-      imageUrl
-    };
-
-    let aiFeedback;
-    try {
-      aiFeedback = await generateSubjectiveFeedback(
-        evaluationRequest,
-        objectiveScore,
-        imageMetrics
+    if (submitType === 'figma' && !figmaUrl) {
+      return NextResponse.json(
+        { error: 'Figma URLは必須です' }, 
+        { status: 400 }
       );
-    } catch (error) {
-      console.warn('AI feedback generation failed:', error);
-      // AI フィードバック生成に失敗した場合はデフォルトを返す
-      aiFeedback = {
-        subjective_feedback: {
-          visual_impact: "画像分析に基づく評価を実施しました。",
-          user_experience: "定量的指標による客観的評価を提供しています。",
-          brand_consistency: "ブランド要素の分析結果を参考にしてください。",
-          trend_alignment: "現在のデザイントレンドとの比較を行いました。",
-          improvement_suggestions: [
-            "コントラスト比の改善を検討してください",
-            "レイアウトの整列性を向上させることをお勧めします"
-          ]
-        },
-        overall_feedback: "客観的分析に基づく総合評価を提供しました。詳細な改善提案については各項目をご確認ください。",
-        tone: "constructive" as const
-      };
     }
 
-    // 4. 統合結果の返却
-    const result = {
-      objective_score: Math.round(objectiveScore * 10) / 10,
-      technical_metrics: imageMetrics,
-      ai_feedback: aiFeedback,
-      evaluation_summary: {
-        color_contrast: imageMetrics?.accessibility_metrics?.wcag_aa_compliant ? 
-          Math.round(imageMetrics.accessibility_metrics.wcag_aa_compliant * 20) : 10,
-        layout_quality: imageMetrics?.layout_metrics?.grid_alignment ? 
-          Math.round(imageMetrics.layout_metrics.grid_alignment * 20) : 12,
-        accessibility: imageMetrics?.accessibility_metrics ? 
-          Math.round((imageMetrics.accessibility_metrics.wcag_aa_compliant + 
-                     (imageMetrics.accessibility_metrics.color_blind_safe ? 1 : 0)) * 10) : 10,
-        ui_elements: imageMetrics?.ui_elements?.cta_prominence ? 
-          Math.round(imageMetrics.ui_elements.cta_prominence * 20) : 15
-      },
-      metadata: {
-        analysis_timestamp: new Date().toISOString(),
-        evaluation_method: 'objective_quantitative_analysis',
-        ai_feedback_included: true
-      }
-    };
+    if (submitType === 'image' && !imageFile) {
+      return NextResponse.json(
+        { error: '画像ファイルは必須です' }, 
+        { status: 400 }
+      );
+    }
 
-    return NextResponse.json(result);
-  } catch (error) {
-    console.error('Evaluation error:', error);
+    let imageUrl = null;
     
+    // 画像アップロード処理
+    if (submitType === 'image' && imageFile) {
+      const fileExt = imageFile.name.split('.').pop();
+      const fileName = `${user.id}/${uuidv4()}.${fileExt}`;
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('ui-designs')
+        .upload(fileName, imageFile);
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        return NextResponse.json(
+          { error: '画像のアップロードに失敗しました' }, 
+          { status: 500 }
+        );
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('ui-designs')
+        .getPublicUrl(fileName);
+      
+      imageUrl = publicUrl;
+    }
+
+    // ui_submissionsテーブルに保存
+    const { data: submission, error: submissionError } = await supabase
+      .from('ui_submissions')
+      .insert({
+        user_id: user.id,
+        project_name: projectName,
+        description: description || null,
+        structure_note: structureNote || null,
+        figma_url: submitType === 'figma' ? figmaUrl : null,
+        image_url: imageUrl
+      })
+      .select()
+      .single();
+
+    if (submissionError) {
+      console.error('Submission error:', submissionError);
+      return NextResponse.json(
+        { error: 'データの保存に失敗しました' }, 
+        { status: 500 }
+      );
+    }
+
+    // Claude APIで評価
+    const evaluationResult = await evaluateDesign({
+      title: projectName,
+      description: description || '',
+      structureNote: structureNote || '',
+      figmaLink: submitType === 'figma' ? figmaUrl : undefined,
+      imageUrl: imageUrl || undefined
+    });
+
+    // ui_scoresテーブルに評価結果を保存
+    const { data: score, error: scoreError } = await supabase
+      .from('ui_scores')
+      .insert({
+        submission_id: submission.id,
+        ui_type: evaluationResult.ui_type,
+        score_aesthetic: evaluationResult.score_aesthetic,
+        score_usability: evaluationResult.score_usability,
+        score_alignment: evaluationResult.score_alignment,
+        score_accessibility: evaluationResult.score_accessibility,
+        score_consistency: evaluationResult.score_consistency,
+        review_text: evaluationResult.review_text
+      })
+      .select()
+      .single();
+
+    if (scoreError) {
+      console.error('Score save error:', scoreError);
+      return NextResponse.json(
+        { error: '評価結果の保存に失敗しました' }, 
+        { status: 500 }
+      );
+    }
+
+    // Slack通知（TODO: 実装予定）
+    // await sendSlackNotification({
+    //   userName: user.email || 'Unknown',
+    //   projectName: projectName,
+    //   totalScore: evaluationResult.total_score,
+    //   reviewText: evaluationResult.review_text
+    // });
+
+    return NextResponse.json({
+      success: true,
+      submissionId: submission.id,
+      evaluation: {
+        ...evaluationResult,
+        submissionId: submission.id
+      }
+    });
+
+  } catch (error) {
+    console.error('API error:', error);
     return NextResponse.json(
-      { error: '統合評価中にエラーが発生しました' },
+      { error: '評価処理中にエラーが発生しました' }, 
       { status: 500 }
     );
   }
@@ -129,38 +163,29 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({ 
-    message: '強化版UI/UX評価APIエンドポイント',
-    description: '定量的画像分析による客観的スコアリング + AI主観的フィードバック生成',
+    message: 'UI/UX評価API v1.0',
+    description: 'Claude APIによる5項目評価 + 構造メモ対応',
     methods: ['POST'],
     parameters: {
-      title: 'プロジェクト名 (必須)',
+      projectName: 'プロジェクト名 (必須)',
       description: '説明・意図 (必須)',
+      structureNote: '構造メモ・設計意図 (任意)',
       submitType: 'image | figma',
-      figmaLink: 'Figmaリンク (figma選択時)',
+      figmaUrl: 'Figmaリンク (figma選択時)',
       image: '画像ファイル (image選択時)'
     },
-    response_structure: {
-      objective_score: '客観的総合スコア (0-100)',
-      technical_metrics: {
-        color_metrics: 'WCAG準拠コントラスト比、色彩調和、配色分析',
-        layout_metrics: 'グリッド整列、余白比率、視覚階層、バランス',
-        accessibility_metrics: 'WCAG AA/AAA準拠率、色覚異常対応、フォーカス表示',
-        ui_elements: 'ボタン検出、CTA際立ち度、ナビゲーション要素'
-      },
-      ai_feedback: {
-        subjective_feedback: '主観的評価（視覚インパクト、UX、ブランド整合性等）',
-        overall_feedback: '総合フィードバック',
-        tone: 'フィードバックのトーン'
-      },
-      evaluation_summary: '各カテゴリの簡易スコア',
-      metadata: '評価メタデータ'
-    },
-    features: [
-      '画像から自動的にWCAGコントラスト比を測定',
-      'UI要素（ボタン、CTA、ナビゲーション）の自動検出',
-      'レイアウト整列性・余白バランスの定量評価',
-      'AIによる主観的フィードバック（スコア計算はAI非依存）'
-    ],
-    note: '客観スコアは定量的画像分析に基づき、AIは主観的フィードバックのみ生成します'
+    response: {
+      submissionId: '提出ID',
+      evaluation: {
+        ui_type: 'UIタイプ分類',
+        score_aesthetic: '視覚的インパクト (0-10)',
+        score_usability: '使いやすさ (0-10)',
+        score_alignment: 'グリッド/整列 (0-10)',
+        score_accessibility: 'アクセシビリティ (0-10)',
+        score_consistency: '一貫性 (0-10)',
+        total_score: '総合スコア (平均値)',
+        review_text: '評価コメント'
+      }
+    }
   });
 }

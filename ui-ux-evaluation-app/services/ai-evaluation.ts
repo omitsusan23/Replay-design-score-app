@@ -15,6 +15,18 @@ export interface EvaluationRequest {
   figmaLink?: string;
   description: string;
   title: string;
+  structureNote?: string;
+}
+
+export interface EvaluationResult {
+  ui_type: string;
+  score_aesthetic: number;
+  score_usability: number;
+  score_alignment: number;
+  score_accessibility: number;
+  score_consistency: number;
+  total_score: number;
+  review_text: string;
 }
 
 export interface SubjectiveFeedback {
@@ -38,34 +50,103 @@ export interface EvaluationResponse {
 }
 
 const FEEDBACK_PROMPT = `
-あなたはUI/UXの専門家です。提供されたUI設計とその客観的分析結果を基に、主観的なフィードバックを提供してください。
+あなたはUI/UXデザインの専門家です。提供されたデザインを以下の5つの観点から評価し、各項目を0.0〜10.0の小数点スコアで採点してください。
 
-客観的スコアは既に算出されているので、スコアの計算は不要です。
-代わりに、以下の観点から実用的なフィードバックを提供してください：
+評価基準：
+1. score_aesthetic（視覚的インパクト）: 配色、タイポグラフィ、ビジュアル要素の美的完成度
+2. score_usability（使いやすさ）: 直感的な操作性、情報の見つけやすさ、ユーザーフロー
+3. score_alignment（グリッド/整列）: レイアウトの整合性、要素の配置、視覚的階層
+4. score_accessibility（アクセシビリティ）: 色のコントラスト、フォントサイズ、インクルーシブデザイン
+5. score_consistency（一貫性）: デザイン言語の統一性、UI要素の再利用性、ブランド整合性
 
-1. 第一印象・ビジュアルインパクト
-2. ユーザー体験の質
-3. ブランドアイデンティティとの整合性
-4. トレンドとの関連性
-5. 改善提案
+また、ui_typeを以下から選択してください：
+- "LP"（ランディングページ）
+- "Dashboard"（ダッシュボード）
+- "Form"（フォーム）
+- "Mobile App"（モバイルアプリ）
+- "E-commerce"（ECサイト）
+- "その他"
 
-レスポンスは以下のJSON形式で返してください：
+review_textには、デザインの長所と改善点を簡潔に記載してください。特に改善が必要な点については具体的な提案を含めてください。
 
+必ず以下のJSON形式で回答してください：
 {
-  "subjective_feedback": {
-    "visual_impact": "第一印象に関するコメント",
-    "user_experience": "ユーザー体験に関するコメント", 
-    "brand_consistency": "ブランドとの整合性に関するコメント",
-    "trend_alignment": "トレンドとの関連性に関するコメント",
-    "improvement_suggestions": [
-      "具体的な改善提案1",
-      "具体的な改善提案2"
-    ]
-  },
-  "overall_feedback": "総合的なフィードバック文章",
-  "tone": "positive" | "neutral" | "constructive"
+  "ui_type": "選択したUIタイプ",
+  "score_aesthetic": 0.0,
+  "score_usability": 0.0,
+  "score_alignment": 0.0,
+  "score_accessibility": 0.0,
+  "score_consistency": 0.0,
+  "total_score": 0.00,
+  "review_text": "評価コメント"
 }
 `;
+
+export async function evaluateDesign(request: EvaluationRequest): Promise<EvaluationResult> {
+  try {
+    let message = `以下のUI/UXデザインを評価してください。
+
+プロジェクト名: ${request.title}
+説明・意図: ${request.description}`;
+
+    if (request.structureNote) {
+      message += `\n構造メモ（設計意図）: ${request.structureNote}`;
+    }
+
+    if (request.figmaLink) {
+      message += `\nFigma URL: ${request.figmaLink}`;
+    } else if (request.imageUrl) {
+      message += `\n画像URL: ${request.imageUrl}`;
+    }
+
+    const response = await anthropic.messages.create({
+      model: 'claude-3-opus-20240229',
+      max_tokens: 1000,
+      temperature: 0.3,
+      system: FEEDBACK_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: request.imageUrl ? [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/jpeg',
+                data: request.imageUrl
+              }
+            },
+            {
+              type: 'text',
+              text: message
+            }
+          ] : message
+        }
+      ]
+    });
+
+    const content = response.content[0];
+    if (content.type === 'text') {
+      const result = JSON.parse(content.text) as EvaluationResult;
+      
+      // total_scoreを再計算（5項目の平均）
+      result.total_score = Number(
+        ((result.score_aesthetic + 
+          result.score_usability + 
+          result.score_alignment + 
+          result.score_accessibility + 
+          result.score_consistency) / 5).toFixed(2)
+      );
+      
+      return result;
+    }
+
+    throw new Error('Invalid response format');
+  } catch (error) {
+    console.error('Error evaluating design:', error);
+    throw new Error('デザイン評価中にエラーが発生しました');
+  }
+}
 
 export async function generateSubjectiveFeedback(
   request: EvaluationRequest, 
