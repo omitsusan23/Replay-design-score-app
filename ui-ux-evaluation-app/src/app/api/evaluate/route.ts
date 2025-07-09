@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { evaluateDesign } from '@/services/ai-evaluation';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     // 画像アップロード処理
     if (submitType === 'image' && imageFile) {
       const fileExt = imageFile.name.split('.').pop();
-      const fileName = `${user.id}/${uuidv4()}.${fileExt}`;
+      const fileName = `${user.id}/${randomUUID()}.${fileExt}`;
       
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('ui-designs')
