@@ -12,7 +12,7 @@ export type UIType =
   | 'Eコマース'
   | 'その他';
 
-export interface V1EvaluationScores {
+export interface V1EvaluationScores extends Record<string, number> {
   visual_hierarchy: number;      // 視覚的階層
   color_harmony: number;         // 色彩調和
   typography: number;            // タイポグラフィ
