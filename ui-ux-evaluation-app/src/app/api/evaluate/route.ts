@@ -3,13 +3,21 @@ import { createClient } from '@supabase/supabase-js';
 import { evaluateDesign } from '@/services/ai-evaluation';
 import { randomUUID } from 'crypto';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+// Supabaseクライアントは関数内で初期化
 
 export async function POST(request: NextRequest) {
   try {
+    // 環境変数チェック
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return NextResponse.json({ error: 'Supabase設定が不完全です' }, { status: 500 });
+    }
+
+    // Supabaseクライアント初期化
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
     // 認証チェック
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
