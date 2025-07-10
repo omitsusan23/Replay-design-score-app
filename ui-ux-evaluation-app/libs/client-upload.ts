@@ -3,11 +3,18 @@
 import { createClient } from '@supabase/supabase-js';
 import { extractImagesFromZip } from './zip-extractor';
 
-// クライアント側のSupabaseクライアント
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// クライアント側のSupabaseクライアント（シングルトン）
+let supabase: ReturnType<typeof createClient> | null = null;
+
+function getSupabaseClient() {
+  if (!supabase) {
+    supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+  }
+  return supabase;
+}
 
 export interface UploadResult {
   success: boolean;
@@ -57,7 +64,7 @@ export class ClientUploadService {
       const fileName = customFileName || `${userId}/${timestamp}_${randomId}.${extension}`;
 
       // Supabase Storageにアップロード
-      const { data, error } = await supabase.storage
+      const { data, error } = await getSupabaseClient().storage
         .from(this.BUCKET_NAME)
         .upload(fileName, file, {
           cacheControl: '3600',
@@ -73,7 +80,7 @@ export class ClientUploadService {
       }
 
       // パブリックURLを取得
-      const { data: publicData } = supabase.storage
+      const { data: publicData } = getSupabaseClient().storage
         .from(this.BUCKET_NAME)
         .getPublicUrl(fileName);
 
@@ -269,7 +276,7 @@ export class ClientUploadService {
    * @returns ユーザー情報
    */
   static async getCurrentUser() {
-    const { data: { user }, error } = await supabase.auth.getUser();
+    const { data: { user }, error } = await getSupabaseClient().auth.getUser();
     if (error) {
       console.error('Auth error:', error);
       return null;
@@ -282,7 +289,7 @@ export class ClientUploadService {
    * @returns セッション情報
    */
   static async getCurrentSession() {
-    const { data: { session }, error } = await supabase.auth.getSession();
+    const { data: { session }, error } = await getSupabaseClient().auth.getSession();
     if (error) {
       console.error('Session error:', error);
       return null;
@@ -318,7 +325,7 @@ export class ClientUploadService {
    */
   static async testStorageConnection(): Promise<boolean> {
     try {
-      const { data, error } = await supabase.storage.listBuckets();
+      const { data, error } = await getSupabaseClient().storage.listBuckets();
       if (error) {
         console.error('Storage connection test failed:', error);
         return false;

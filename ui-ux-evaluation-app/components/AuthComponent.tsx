@@ -10,10 +10,18 @@ import {
 } from '@heroicons/react/24/outline';
 import { toast } from 'react-hot-toast';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Supabaseクライアント（シングルトン）
+let supabase: ReturnType<typeof createClient> | null = null;
+
+function getSupabaseClient() {
+  if (!supabase) {
+    supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+  }
+  return supabase;
+}
 
 interface AuthComponentProps {
   onAuthStateChange?: (user: User | null) => void;
@@ -30,7 +38,7 @@ export default function AuthComponent({ onAuthStateChange }: AuthComponentProps)
   useEffect(() => {
     // 初期認証状態の確認
     const getInitialSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await getSupabaseClient().auth.getSession();
       setUser(session?.user ?? null);
       setLoading(false);
       if (onAuthStateChange) {
@@ -41,7 +49,7 @@ export default function AuthComponent({ onAuthStateChange }: AuthComponentProps)
     getInitialSession();
 
     // 認証状態の変更を監視
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    const { data: { subscription } } = getSupabaseClient().auth.onAuthStateChange(
       async (event, session) => {
         setUser(session?.user ?? null);
         if (onAuthStateChange) {
@@ -64,7 +72,7 @@ export default function AuthComponent({ onAuthStateChange }: AuthComponentProps)
     setAuthLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { error } = await getSupabaseClient().auth.signInWithPassword({
         email: email.trim(),
         password: password
       });
@@ -90,7 +98,7 @@ export default function AuthComponent({ onAuthStateChange }: AuthComponentProps)
     setAuthLoading(true);
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { error } = await getSupabaseClient().auth.signUp({
         email: email.trim(),
         password: password
       });
@@ -114,7 +122,7 @@ export default function AuthComponent({ onAuthStateChange }: AuthComponentProps)
   const handleSignOut = async () => {
     setAuthLoading(true);
     try {
-      const { error } = await supabase.auth.signOut();
+      const { error } = await getSupabaseClient().auth.signOut();
       if (error) {
         throw error;
       }
@@ -129,7 +137,7 @@ export default function AuthComponent({ onAuthStateChange }: AuthComponentProps)
   const handleGoogleSignIn = async () => {
     setAuthLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { error } = await getSupabaseClient().auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/training-upload`
