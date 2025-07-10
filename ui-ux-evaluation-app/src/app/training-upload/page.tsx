@@ -1,9 +1,18 @@
 'use client';
 
+import { useState } from 'react';
+import { User } from '@supabase/supabase-js';
 import { Toaster } from 'react-hot-toast';
 import UploadForm from '@/components/UploadForm';
+import AuthComponent from '@/components/AuthComponent';
 
 export default function TrainingUploadPage() {
+  const [user, setUser] = useState<User | null>(null);
+
+  const handleAuthStateChange = (user: User | null) => {
+    setUser(user);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="container mx-auto px-4">
@@ -17,7 +26,13 @@ export default function TrainingUploadPage() {
           </p>
         </div>
 
-        <UploadForm />
+        {/* 認証コンポーネント */}
+        <div className="mb-8">
+          <AuthComponent onAuthStateChange={handleAuthStateChange} />
+        </div>
+
+        {/* アップロードフォーム（ログイン時のみ表示） */}
+        {user && <UploadForm />}
         
         <div className="mt-12 max-w-4xl mx-auto">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -72,7 +87,8 @@ export default function TrainingUploadPage() {
                 <div className="mt-1 text-sm text-amber-700">
                   <ul className="list-disc pl-5 space-y-1">
                     <li>アップロードした画像は管理者の承認後に教師データとして利用されます</li>
-                    <li>1日最大50枚、1回最大10枚までアップロード可能です</li>
+                    <li>個別モード: 1日最大50枚、1回最大10枚まで</li>
+                    <li>ZIPモード: 1日最大200枚、1回の枚数制限なし</li>
                     <li>機密情報や著作権のある画像のアップロードはお控えください</li>
                   </ul>
                 </div>
