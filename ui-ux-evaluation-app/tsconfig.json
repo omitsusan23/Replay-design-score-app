@@ -23,6 +23,7 @@
       "@/services/*": ["./services/*"],
       "@/types/*": ["./types/*"],
       "@/lib/*": ["./lib/*"],
+      "@/libs/*": ["./libs/*"],
       "@/components/*": ["./components/*"]
     }
   },
