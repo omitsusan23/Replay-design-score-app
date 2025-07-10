@@ -211,7 +211,7 @@ ${this.EVALUATION_PROMPT}`;
    * @returns タグ配列
    */
   private static extractTags(text: string): string[] {
-    const tagMatch = text.match(/tags[:\s]*\[(.*?)\]/s);
+    const tagMatch = text.match(/tags[:\s]*\[([\s\S]*?)\]/);
     if (tagMatch) {
       return tagMatch[1]
         .split(',')
