@@ -25,12 +25,12 @@ export class FeedbackService {
     try {
       const insertData: FeedbackInsertData = {
         submission_id: submissionId,
-        visual_impact: feedbackData.subjective_feedback?.visual_impact || null,
-        user_experience: feedbackData.subjective_feedback?.user_experience || null,
-        brand_consistency: feedbackData.subjective_feedback?.brand_consistency || null,
-        trend_alignment: feedbackData.subjective_feedback?.trend_alignment || null,
+        visual_impact: feedbackData.subjective_feedback?.visual_impact || undefined,
+        user_experience: feedbackData.subjective_feedback?.user_experience || undefined,
+        brand_consistency: feedbackData.subjective_feedback?.brand_consistency || undefined,
+        trend_alignment: feedbackData.subjective_feedback?.trend_alignment || undefined,
         improvement_suggestions: feedbackData.subjective_feedback?.improvement_suggestions || [],
-        overall_feedback: feedbackData.overall_feedback || null,
+        overall_feedback: feedbackData.overall_feedback || undefined,
         tone: feedbackData.tone || 'neutral'
       };
 
@@ -89,12 +89,12 @@ export class FeedbackService {
   ): Promise<FeedbackRow | null> {
     try {
       const updateData: Partial<FeedbackInsertData> = {
-        visual_impact: feedbackData.subjective_feedback?.visual_impact || null,
-        user_experience: feedbackData.subjective_feedback?.user_experience || null,
-        brand_consistency: feedbackData.subjective_feedback?.brand_consistency || null,
-        trend_alignment: feedbackData.subjective_feedback?.trend_alignment || null,
+        visual_impact: feedbackData.subjective_feedback?.visual_impact || undefined,
+        user_experience: feedbackData.subjective_feedback?.user_experience || undefined,
+        brand_consistency: feedbackData.subjective_feedback?.brand_consistency || undefined,
+        trend_alignment: feedbackData.subjective_feedback?.trend_alignment || undefined,
         improvement_suggestions: feedbackData.subjective_feedback?.improvement_suggestions || [],
-        overall_feedback: feedbackData.overall_feedback || null,
+        overall_feedback: feedbackData.overall_feedback || undefined,
         tone: feedbackData.tone || 'neutral'
       };
 
