@@ -107,56 +107,119 @@ ${this.EVALUATION_PROMPT}`;
   }
 
   /**
-   * 複数画像を順次評価（APIレート制限を考慮）
+   * 複数画像を並列評価（バッチサイズでレート制限管理）
    * @param inputs 評価入力データ配列
    * @param onProgress 進捗コールバック
+   * @param batchSize 並列処理のバッチサイズ（デフォルト: 3）
    * @returns バッチ評価結果
    */
   static async evaluateMultipleImages(
     inputs: ClaudeEvaluationInput[],
-    onProgress?: (completed: number, total: number) => void
+    onProgress?: (completed: number, total: number) => void,
+    batchSize: number = 3
   ): Promise<BatchEvaluationResult> {
-    const results: ClaudeEvaluationResult[] = [];
-    const errors: string[] = [];
-    let successCount = 0;
-    let failureCount = 0;
+    const allResults: ClaudeEvaluationResult[] = [];
+    const allErrors: string[] = [];
+    let totalSuccessCount = 0;
+    let totalFailureCount = 0;
 
-    for (let i = 0; i < inputs.length; i++) {
+    // 入力を小さなバッチに分割
+    const batches = this.chunkArray(inputs, batchSize);
+    let completedCount = 0;
+
+    console.log(`Starting parallel evaluation of ${inputs.length} images in ${batches.length} batches of ${batchSize}`);
+
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      
       try {
-        // APIレート制限を考慮した待機時間
-        if (i > 0) {
-          await this.delay(1000); // 1秒待機
+        // バッチ内で並列処理
+        const batchPromises = batch.map(async (input, indexInBatch) => {
+          const globalIndex = batchIndex * batchSize + indexInBatch;
+          try {
+            const result = await this.evaluateSingleImage(input);
+            return { success: true, result, index: globalIndex };
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            const defaultResult = this.createDefaultResult(input.projectName, globalIndex + 1);
+            return { 
+              success: false, 
+              result: defaultResult, 
+              error: `画像 ${globalIndex + 1}: ${errorMessage}`,
+              index: globalIndex
+            };
+          }
+        });
+
+        // バッチ処理実行
+        const batchResults = await Promise.all(batchPromises);
+        
+        // 結果を集計
+        batchResults.forEach(({ success, result, error }) => {
+          allResults.push(result);
+          if (success) {
+            totalSuccessCount++;
+          } else {
+            totalFailureCount++;
+            if (error) allErrors.push(error);
+          }
+        });
+
+        completedCount += batch.length;
+
+        // 進捗報告
+        if (onProgress) {
+          onProgress(completedCount, inputs.length);
         }
 
-        const result = await this.evaluateSingleImage(inputs[i]);
-        results.push(result);
-        successCount++;
+        console.log(`Batch ${batchIndex + 1}/${batches.length} completed: ${batch.length} images processed`);
 
-        if (onProgress) {
-          onProgress(i + 1, inputs.length);
+        // バッチ間の待機（最後のバッチ以外）
+        if (batchIndex < batches.length - 1) {
+          await this.delay(1500); // バッチ間1.5秒待機
         }
 
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        errors.push(`画像 ${i + 1}: ${errorMessage}`);
-        failureCount++;
+        console.error(`Batch ${batchIndex + 1} processing error:`, error);
+        
+        // バッチ全体がエラーの場合、デフォルト結果で埋める
+        batch.forEach((input, indexInBatch) => {
+          const globalIndex = batchIndex * batchSize + indexInBatch;
+          allResults.push(this.createDefaultResult(input.projectName, globalIndex + 1));
+          allErrors.push(`画像 ${globalIndex + 1}: バッチ処理エラー`);
+          totalFailureCount++;
+        });
 
-        // エラーが発生してもデフォルト値で継続
-        results.push(this.createDefaultResult(inputs[i].projectName, i + 1));
-
+        completedCount += batch.length;
         if (onProgress) {
-          onProgress(i + 1, inputs.length);
+          onProgress(completedCount, inputs.length);
         }
       }
     }
 
+    console.log(`Parallel evaluation completed: ${totalSuccessCount} successful, ${totalFailureCount} failed`);
+
     return {
-      success: successCount > 0,
-      results,
-      successCount,
-      failureCount,
-      errors
+      success: totalSuccessCount > 0,
+      results: allResults,
+      successCount: totalSuccessCount,
+      failureCount: totalFailureCount,
+      errors: allErrors
     };
+  }
+
+  /**
+   * 配列を指定サイズのチャンクに分割
+   * @param array 分割する配列
+   * @param size チャンクサイズ
+   * @returns チャンク配列
+   */
+  private static chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
   }
 
   /**

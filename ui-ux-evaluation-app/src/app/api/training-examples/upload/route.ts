@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { uploadTrainingImagesWithProgress } from '@/libs/supabase-upload';
 import { evaluateMultipleUIImages } from '@/libs/claude-eval';
 import { saveClaudeEvaluationsToDatabase } from '@/libs/save-to-db';
+import { extractImagesFromZip } from '@/libs/zip-extractor';
 
 interface UploadProcessResult {
   success: boolean;
@@ -64,15 +65,65 @@ export async function POST(request: NextRequest) {
     // フォームデータの取得
     const formData = await request.formData();
     const projectName = formData.get('projectName') as string;
+    const uploadMode = formData.get('uploadMode') as string || 'images';
     
-    // 画像ファイルを取得
-    const imageFiles: File[] = [];
-    let index = 0;
-    while (true) {
-      const file = formData.get(`images[${index}]`) as File;
-      if (!file) break;
-      imageFiles.push(file);
-      index++;
+    let imageFiles: File[] = [];
+    let zipExtractionInfo: any = null;
+
+    if (uploadMode === 'zip') {
+      // Zipファイルモード
+      const zipFile = formData.get('zipFile') as File;
+      if (!zipFile) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Zipファイルが必要です' 
+        }, { status: 400 });
+      }
+
+      console.log(`Processing zip file: ${zipFile.name} (${zipFile.size} bytes)`);
+      
+      // Zipファイルから画像を抽出
+      try {
+        const { files, result } = await extractImagesFromZip(zipFile);
+        imageFiles = files;
+        zipExtractionInfo = {
+          totalFiles: result.totalFiles,
+          extractedCount: result.extractedCount,
+          skippedCount: result.skippedCount,
+          errors: result.errors
+        };
+
+        console.log(`Zip extraction completed: ${result.extractedCount} images extracted from ${result.totalFiles} files`);
+        
+        if (result.errors.length > 0) {
+          console.warn('Zip extraction warnings:', result.errors);
+        }
+
+        if (imageFiles.length === 0) {
+          return NextResponse.json({ 
+            success: false, 
+            error: 'Zipファイル内に有効な画像ファイルが見つかりませんでした',
+            details: result.errors
+          }, { status: 400 });
+        }
+
+      } catch (error) {
+        console.error('Zip extraction error:', error);
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Zipファイルの解凍に失敗しました',
+          details: error instanceof Error ? error.message : 'Unknown error'
+        }, { status: 400 });
+      }
+    } else {
+      // 個別画像ファイルモード
+      let index = 0;
+      while (true) {
+        const file = formData.get(`images[${index}]`) as File;
+        if (!file) break;
+        imageFiles.push(file);
+        index++;
+      }
     }
 
     // 入力検証
@@ -90,22 +141,24 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    if (imageFiles.length > 10) {
+    // 画像モードの場合のみ枚数制限をチェック（zipモードは制限なし）
+    if (uploadMode === 'images' && imageFiles.length > 10) {
       return NextResponse.json({ 
         success: false, 
-        error: '一度にアップロードできる画像は最大10枚です' 
+        error: '個別アップロードモードでは一度にアップロードできる画像は最大10枚です' 
       }, { status: 400 });
     }
 
-    // アップロード制限チェック
+    // アップロード制限チェック（zipモードでは緩和された制限）
     const { createTrainingExampleSaveService } = await import('@/libs/save-to-db');
     const saveService = createTrainingExampleSaveService(supabaseUrl, supabaseServiceKey);
-    const limitCheck = await saveService.checkUserUploadLimit(user.id, 50);
+    const dailyLimit = uploadMode === 'zip' ? 200 : 50; // zip: 200枚, images: 50枚
+    const limitCheck = await saveService.checkUserUploadLimit(user.id, dailyLimit);
     
     if (!limitCheck.canUpload || limitCheck.remaining < imageFiles.length) {
       return NextResponse.json({ 
         success: false, 
-        error: `1日のアップロード制限を超過しています。残り: ${limitCheck.remaining}枚` 
+        error: `1日のアップロード制限を超過しています。残り: ${limitCheck.remaining}枚（${uploadMode === 'zip' ? 'Zip' : '個別'}モード: ${dailyLimit}枚/日）` 
       }, { status: 429 });
     }
 
@@ -197,6 +250,7 @@ export async function POST(request: NextRequest) {
       message: `${result.savedCount}件の教師データを保存しました`,
       savedCount: result.savedCount,
       totalImages: result.totalImages,
+      uploadMode,
       details: {
         upload: {
           success: uploadResults.successCount,
@@ -209,7 +263,10 @@ export async function POST(request: NextRequest) {
         save: {
           success: saveResults.successCount,
           failed: saveResults.failureCount
-        }
+        },
+        ...(zipExtractionInfo && {
+          zipExtraction: zipExtractionInfo
+        })
       },
       warnings: errors.length > 0 ? errors : undefined,
       savedIds: saveResults.savedIds

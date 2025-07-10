@@ -17,49 +17,79 @@ interface UploadedImage {
   id: string;
 }
 
+interface UploadedZip {
+  file: File;
+  id: string;
+}
+
 interface UploadFormProps {
-  onSubmit?: (data: { projectName: string; images: File[] }) => void;
+  onSubmit?: (data: { projectName: string; images?: File[]; zipFile?: File }) => void;
   isLoading?: boolean;
 }
 
 export default function UploadForm({ onSubmit, isLoading = false }: UploadFormProps) {
   const [projectName, setProjectName] = useState('');
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
+  const [uploadedZip, setUploadedZip] = useState<UploadedZip | null>(null);
+  const [uploadMode, setUploadMode] = useState<'images' | 'zip'>('images');
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'uploading' | 'processing' | 'completed' | 'error'>('idle');
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    // ファイルサイズとタイプの検証
-    const validFiles = acceptedFiles.filter(file => {
-      const isImage = file.type.startsWith('image/');
-      const isSizeValid = file.size <= 10 * 1024 * 1024; // 10MB制限
-      
-      if (!isImage) {
-        toast.error(`${file.name}は画像ファイルではありません`);
-        return false;
+    if (uploadMode === 'zip') {
+      // Zipモード: 1つのzipファイルのみ
+      const zipFile = acceptedFiles.find(file => file.type === 'application/zip' || file.name.endsWith('.zip'));
+      if (zipFile) {
+        const isSizeValid = zipFile.size <= 100 * 1024 * 1024; // 100MB制限
+        if (!isSizeValid) {
+          toast.error(`${zipFile.name}のサイズが大きすぎます（100MB以下にしてください）`);
+          return;
+        }
+        setUploadedZip({
+          file: zipFile,
+          id: Math.random().toString(36).substr(2, 9)
+        });
+        toast.success(`Zipファイル「${zipFile.name}」をアップロードしました`);
+      } else {
+        toast.error('Zipファイルを選択してください');
       }
-      if (!isSizeValid) {
-        toast.error(`${file.name}のサイズが大きすぎます（10MB以下にしてください）`);
-        return false;
-      }
-      return true;
-    });
+    } else {
+      // 画像モード: 複数画像ファイル
+      const validFiles = acceptedFiles.filter(file => {
+        const isImage = file.type.startsWith('image/');
+        const isSizeValid = file.size <= 10 * 1024 * 1024; // 10MB制限
+        
+        if (!isImage) {
+          toast.error(`${file.name}は画像ファイルではありません`);
+          return false;
+        }
+        if (!isSizeValid) {
+          toast.error(`${file.name}のサイズが大きすぎます（10MB以下にしてください）`);
+          return false;
+        }
+        return true;
+      });
 
-    const newImages: UploadedImage[] = validFiles.map(file => ({
-      file,
-      preview: URL.createObjectURL(file),
-      id: Math.random().toString(36).substr(2, 9)
-    }));
+      const newImages: UploadedImage[] = validFiles.map(file => ({
+        file,
+        preview: URL.createObjectURL(file),
+        id: Math.random().toString(36).substr(2, 9)
+      }));
 
-    setUploadedImages(prev => [...prev, ...newImages]);
-  }, []);
+      setUploadedImages(prev => [...prev, ...newImages]);
+    }
+  }, [uploadMode]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      'image/*': ['.jpeg', '.jpg', '.png', '.gif', '.webp']
-    },
-    multiple: true,
-    maxFiles: 10 // 最大10枚
+    accept: uploadMode === 'zip' 
+      ? { 'application/zip': ['.zip'] }
+      : { 
+          'image/jpeg': ['.jpeg', '.jpg'],
+          'image/png': ['.png'],
+          'image/webp': ['.webp']
+        },
+    multiple: uploadMode === 'images',
+    maxFiles: uploadMode === 'images' ? undefined : 1 // zip: 1つ, images: 制限なし
   });
 
   const removeImage = (id: string) => {
@@ -72,6 +102,17 @@ export default function UploadForm({ onSubmit, isLoading = false }: UploadFormPr
     });
   };
 
+  const removeZip = () => {
+    setUploadedZip(null);
+  };
+
+  const switchMode = (mode: 'images' | 'zip') => {
+    setUploadMode(mode);
+    // モード切り替え時はアップロード済みファイルをクリア
+    setUploadedImages([]);
+    setUploadedZip(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -80,8 +121,13 @@ export default function UploadForm({ onSubmit, isLoading = false }: UploadFormPr
       return;
     }
 
-    if (uploadedImages.length === 0) {
+    if (uploadMode === 'images' && uploadedImages.length === 0) {
       toast.error('少なくとも1枚の画像をアップロードしてください');
+      return;
+    }
+
+    if (uploadMode === 'zip' && !uploadedZip) {
+      toast.error('Zipファイルをアップロードしてください');
       return;
     }
 
@@ -90,8 +136,9 @@ export default function UploadForm({ onSubmit, isLoading = false }: UploadFormPr
     if (onSubmit) {
       try {
         await onSubmit({ 
-          projectName: projectName.trim(), 
-          images: uploadedImages.map(img => img.file) 
+          projectName: projectName.trim(),
+          images: uploadMode === 'images' ? uploadedImages.map(img => img.file) : undefined,
+          zipFile: uploadMode === 'zip' ? uploadedZip?.file : undefined
         });
         setSubmitStatus('completed');
         toast.success('教師データの保存が完了しました！');
@@ -99,6 +146,7 @@ export default function UploadForm({ onSubmit, isLoading = false }: UploadFormPr
         // フォームをリセット
         setProjectName('');
         setUploadedImages([]);
+        setUploadedZip(null);
       } catch (error) {
         setSubmitStatus('error');
         toast.error('保存中にエラーが発生しました');
@@ -109,9 +157,15 @@ export default function UploadForm({ onSubmit, isLoading = false }: UploadFormPr
       try {
         const formData = new FormData();
         formData.append('projectName', projectName.trim());
-        uploadedImages.forEach((img, index) => {
-          formData.append(`images[${index}]`, img.file);
-        });
+        formData.append('uploadMode', uploadMode);
+        
+        if (uploadMode === 'images') {
+          uploadedImages.forEach((img, index) => {
+            formData.append(`images[${index}]`, img.file);
+          });
+        } else if (uploadMode === 'zip' && uploadedZip) {
+          formData.append('zipFile', uploadedZip.file);
+        }
 
         const response = await fetch('/api/training-examples/upload', {
           method: 'POST',
@@ -129,6 +183,7 @@ export default function UploadForm({ onSubmit, isLoading = false }: UploadFormPr
         // フォームをリセット
         setProjectName('');
         setUploadedImages([]);
+        setUploadedZip(null);
       } catch (error) {
         setSubmitStatus('error');
         toast.error('保存中にエラーが発生しました');
@@ -137,7 +192,10 @@ export default function UploadForm({ onSubmit, isLoading = false }: UploadFormPr
     }
   };
 
-  const isValid = projectName.trim() && uploadedImages.length > 0;
+  const isValid = projectName.trim() && (
+    (uploadMode === 'images' && uploadedImages.length > 0) ||
+    (uploadMode === 'zip' && uploadedZip !== null)
+  );
   const isSubmitting = isLoading || submitStatus === 'uploading' || submitStatus === 'processing';
 
   return (
@@ -172,11 +230,49 @@ export default function UploadForm({ onSubmit, isLoading = false }: UploadFormPr
           </p>
         </div>
 
-        {/* 画像アップロードエリア */}
+        {/* アップロードモード選択 */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-3">
+            アップロード方法 <span className="text-red-500">*</span>
+          </label>
+          <div className="flex space-x-4 mb-4">
+            <button
+              type="button"
+              onClick={() => switchMode('images')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                uploadMode === 'images'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+              disabled={isSubmitting}
+            >
+              📷 個別画像アップロード
+            </button>
+            <button
+              type="button"
+              onClick={() => switchMode('zip')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                uploadMode === 'zip'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+              disabled={isSubmitting}
+            >
+              📦 Zipファイル一括アップロード
+            </button>
+          </div>
+        </div>
+
+        {/* ファイルアップロードエリア */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            画像アップロード <span className="text-red-500">*</span>
-            <span className="text-gray-500 text-xs ml-2">最大10枚、各10MB以下</span>
+            {uploadMode === 'images' ? '画像ファイル' : 'Zipファイル'} <span className="text-red-500">*</span>
+            <span className="text-gray-500 text-xs ml-2">
+              {uploadMode === 'images' 
+                ? '制限なし、各10MB以下' 
+                : '1ファイル、100MB以下'
+              }
+            </span>
           </label>
           
           <div
@@ -190,22 +286,28 @@ export default function UploadForm({ onSubmit, isLoading = false }: UploadFormPr
             <input {...getInputProps()} disabled={isSubmitting} />
             <CloudArrowUpIcon className="w-12 h-12 mx-auto text-gray-400 mb-4" />
             {isDragActive ? (
-              <p className="text-blue-600 text-lg">画像をここにドロップしてください</p>
+              <p className="text-blue-600 text-lg">
+                {uploadMode === 'images' ? '画像' : 'Zipファイル'}をここにドロップしてください
+              </p>
             ) : (
               <div>
                 <p className="text-gray-700 text-lg mb-2">
-                  ドラッグ&ドロップまたはクリックして画像を選択
+                  ドラッグ&ドロップまたはクリックして
+                  {uploadMode === 'images' ? '画像' : 'Zipファイル'}を選択
                 </p>
                 <p className="text-gray-500 text-sm">
-                  JPEG, PNG, GIF, WebP 形式対応
+                  {uploadMode === 'images' 
+                    ? 'JPEG, PNG, WebP 形式対応'
+                    : 'ZIP 形式のみ対応'
+                  }
                 </p>
               </div>
             )}
           </div>
         </div>
 
-        {/* アップロード済み画像のプレビュー */}
-        {uploadedImages.length > 0 && (
+        {/* アップロード済みファイルのプレビュー */}
+        {uploadMode === 'images' && uploadedImages.length > 0 && (
           <div>
             <h3 className="text-sm font-medium text-gray-700 mb-3">
               アップロード済み画像 ({uploadedImages.length}枚)
@@ -233,6 +335,40 @@ export default function UploadForm({ onSubmit, isLoading = false }: UploadFormPr
                   </p>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* アップロード済みZipファイルの表示 */}
+        {uploadMode === 'zip' && uploadedZip && (
+          <div>
+            <h3 className="text-sm font-medium text-gray-700 mb-3">
+              アップロード済みZipファイル
+            </h3>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span className="text-blue-600 text-lg">📦</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {uploadedZip.file.name}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {(uploadedZip.file.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={removeZip}
+                  className="bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
+                  disabled={isSubmitting}
+                >
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         )}
