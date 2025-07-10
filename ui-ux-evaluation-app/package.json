@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:db": "node test-database-connection.js",
+    "debug:upload": "node debug-training-upload.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",
