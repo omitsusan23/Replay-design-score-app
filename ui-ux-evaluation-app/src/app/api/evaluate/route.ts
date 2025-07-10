@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { evaluateDesign } from '@/services/ai-evaluation';
+import { evaluateDesign, generateSubjectiveFeedback } from '@/services/ai-evaluation';
+import { createFeedbackService } from '@/services/feedback.service';
 import { randomUUID } from 'crypto';
 
 // Supabaseクライアントは関数内で初期化
@@ -143,6 +144,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 主観的フィードバックの生成と保存
+    let feedbackData = null;
+    try {
+      const subjectiveFeedback = await generateSubjectiveFeedback({
+        title: projectName,
+        description: description || '',
+        structureNote: structureNote,
+        figmaLink: submitType === 'figma' ? figmaUrl : undefined,
+        imageUrl: imageUrl || undefined
+      }, evaluationResult.total_score);
+
+      // FeedbackServiceを使用してui_feedbacksテーブルに保存
+      const feedbackService = createFeedbackService(supabaseUrl, supabaseServiceKey);
+      feedbackData = await feedbackService.insertFeedback(submission.id, subjectiveFeedback);
+
+      if (!feedbackData) {
+        console.error('Feedback save failed');
+        // フィードバックの保存に失敗してもエラーにはしない（主要機能ではないため）
+      }
+    } catch (error) {
+      console.error('Subjective feedback generation error:', error);
+      // フィードバックの生成に失敗してもエラーにはしない
+    }
+
     // Slack通知（TODO: 実装予定）
     // await sendSlackNotification({
     //   userName: user.email || 'Unknown',
@@ -157,7 +182,8 @@ export async function POST(request: NextRequest) {
       evaluation: {
         ...evaluationResult,
         submissionId: submission.id
-      }
+      },
+      feedback: feedbackData
     });
 
   } catch (error) {

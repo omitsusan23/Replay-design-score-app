@@ -23,8 +23,30 @@ export interface UIScore {
   created_at: string;
 }
 
+export interface UIFeedback {
+  id: string;
+  submission_id: string;
+  visual_impact?: string;
+  user_experience?: string;
+  brand_consistency?: string;
+  trend_alignment?: string;
+  improvement_suggestions?: string[];
+  overall_feedback?: string;
+  tone?: 'positive' | 'neutral' | 'constructive';
+  created_at: string;
+}
+
 export interface UISubmissionWithScore extends UISubmission {
   score?: UIScore;
+}
+
+export interface UISubmissionWithFeedback extends UISubmission {
+  feedback?: UIFeedback;
+}
+
+export interface UISubmissionComplete extends UISubmission {
+  score?: UIScore;
+  feedback?: UIFeedback;
 }
 
 export type Database = {
@@ -39,6 +61,11 @@ export type Database = {
         Row: UIScore;
         Insert: Omit<UIScore, 'id' | 'total_score' | 'created_at'>;
         Update: Partial<Omit<UIScore, 'id' | 'total_score' | 'created_at'>>;
+      };
+      ui_feedbacks: {
+        Row: UIFeedback;
+        Insert: Omit<UIFeedback, 'id' | 'created_at'>;
+        Update: Partial<Omit<UIFeedback, 'id' | 'created_at'>>;
       };
     };
   };
