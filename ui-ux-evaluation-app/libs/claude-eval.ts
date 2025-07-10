@@ -52,13 +52,28 @@ tags: ["構造優", "CTA優", "視認性良好"] など分類的なラベルを3
   static async evaluateSingleImage(input: ClaudeEvaluationInput): Promise<ClaudeEvaluationResult> {
     try {
       if (!process.env.ANTHROPIC_API_KEY) {
+        console.error('❌ ANTHROPIC_API_KEY が設定されていません');
+        console.error('現在の値:', process.env.ANTHROPIC_API_KEY);
         throw new Error('ANTHROPIC_API_KEY が設定されていません');
       }
+
+      // APIキーの形式チェック
+      if (process.env.ANTHROPIC_API_KEY === 'your-anthropic-api-key') {
+        console.error('❌ ANTHROPIC_API_KEY がプレースホルダーのままです');
+        throw new Error('ANTHROPIC_API_KEY を実際のAPIキーに置き換えてください');
+      }
+
+      console.log('🔄 Claude API を呼び出し中...');
+      console.log('画像URL:', input.imageUrl);
+      console.log('プロジェクト名:', input.projectName);
 
       const userMessage = `プロジェクト名: ${input.projectName}
 
 ${this.EVALUATION_PROMPT}`;
 
+      console.log('🚀 APIリクエスト送信中...');
+      const startTime = Date.now();
+      
       const response = await anthropic.messages.create({
         model: 'claude-3-5-sonnet-20241022', // Vision対応モデル
         max_tokens: 1500,
@@ -83,6 +98,9 @@ ${this.EVALUATION_PROMPT}`;
         ]
       });
 
+      const endTime = Date.now();
+      console.log(`✅ Claude API レスポンス受信 (${endTime - startTime}ms)`);
+      
       const content = response.content[0];
       if (content.type === 'text') {
         // JSONブロックを抽出して解析
@@ -101,7 +119,14 @@ ${this.EVALUATION_PROMPT}`;
       throw new Error('Claudeからの応答形式が無効です');
 
     } catch (error) {
-      console.error('Claude evaluation error:', error);
+      console.error('❌ Claude evaluation error:', error);
+      if (error instanceof Error) {
+        console.error('エラー詳細:', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack?.split('\n').slice(0, 5).join('\n')
+        });
+      }
       throw new Error(`Claude評価エラー: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
