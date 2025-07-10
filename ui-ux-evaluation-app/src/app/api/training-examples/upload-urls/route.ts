@@ -39,10 +39,21 @@ export async function POST(request: NextRequest) {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     
+    // デバッグ用ログ（本番環境では削除）
+    console.log('Environment check:', {
+      hasSupabaseUrl: !!supabaseUrl,
+      hasServiceKey: !!supabaseServiceKey,
+      hasAnthropicKey: !!anthropicApiKey
+    });
+    
     if (!supabaseUrl || !supabaseServiceKey) {
       return NextResponse.json({ 
         success: false, 
-        error: 'Supabase設定が不完全です' 
+        error: 'Supabase設定が不完全です',
+        debug: {
+          hasSupabaseUrl: !!supabaseUrl,
+          hasServiceKey: !!supabaseServiceKey
+        }
       }, { status: 500 });
     }
 
