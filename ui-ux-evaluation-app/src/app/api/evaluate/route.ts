@@ -19,18 +19,28 @@ export async function POST(request: NextRequest) {
     // Supabaseクライアント初期化
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // 認証チェック
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+    // セッションベースの認証チェック
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError || !session || !session.user) {
+      // リクエストヘッダーからセッションを取得
+      const authHeader = request.headers.get('authorization');
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+      }
+
+      const token = authHeader.substring(7);
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+      if (authError || !user) {
+        return NextResponse.json({ error: '無効なトークンです' }, { status: 401 });
+      }
+      
+      // userを設定
+      session = { user };
     }
 
-    const token = authHeader.substring(7);
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-    if (authError || !user) {
-      return NextResponse.json({ error: '無効なトークンです' }, { status: 401 });
-    }
+    const user = session.user;
 
     // フォームデータの取得
     const formData = await request.formData();
@@ -89,16 +99,18 @@ export async function POST(request: NextRequest) {
       imageUrl = publicUrl;
     }
 
-    // ui_submissionsテーブルに保存
+    // ui_submissionsテーブルに保存（データベーススキーマに合わせて列名を修正）
     const { data: submission, error: submissionError } = await supabase
       .from('ui_submissions')
       .insert({
         user_id: user.id,
-        project_name: projectName,
+        title: projectName,
         description: description || null,
-        structure_note: structureNote || null,
-        figma_url: submitType === 'figma' ? figmaUrl : null,
-        image_url: imageUrl
+        figma_link: submitType === 'figma' ? figmaUrl : null,
+        image_url: imageUrl,
+        scores: {}, // 仮のスコア（後で更新）
+        feedback: '', // 仮のフィードバック（後で更新）
+        total_score: 0 // 仮の合計スコア（後で更新）
       })
       .select()
       .single();
@@ -120,24 +132,28 @@ export async function POST(request: NextRequest) {
       imageUrl: imageUrl || undefined
     });
 
-    // ui_scoresテーブルに評価結果を保存
-    const { data: score, error: scoreError } = await supabase
-      .from('ui_scores')
-      .insert({
-        submission_id: submission.id,
-        ui_type: evaluationResult.ui_type,
-        score_aesthetic: evaluationResult.score_aesthetic,
-        score_usability: evaluationResult.score_usability,
-        score_alignment: evaluationResult.score_alignment,
-        score_accessibility: evaluationResult.score_accessibility,
-        score_consistency: evaluationResult.score_consistency,
-        review_text: evaluationResult.review_text
+    // ui_submissionsテーブルに評価結果を更新
+    const scores = {
+      aesthetic: evaluationResult.score_aesthetic,
+      usability: evaluationResult.score_usability,
+      alignment: evaluationResult.score_alignment,
+      accessibility: evaluationResult.score_accessibility,
+      consistency: evaluationResult.score_consistency
+    };
+
+    const { data: updatedSubmission, error: updateError } = await supabase
+      .from('ui_submissions')
+      .update({
+        scores: scores,
+        feedback: evaluationResult.review_text,
+        total_score: evaluationResult.total_score
       })
+      .eq('id', submission.id)
       .select()
       .single();
 
-    if (scoreError) {
-      console.error('Score save error:', scoreError);
+    if (updateError) {
+      console.error('Submission update error:', updateError);
       return NextResponse.json(
         { error: '評価結果の保存に失敗しました' }, 
         { status: 500 }
