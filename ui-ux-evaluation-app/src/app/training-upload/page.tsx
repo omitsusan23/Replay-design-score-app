@@ -1,38 +1,26 @@
 'use client';
 
-import { useState } from 'react';
-import { User } from '@supabase/supabase-js';
 import { Toaster } from 'react-hot-toast';
 import UploadForm from '@/components/UploadForm';
-import AuthComponent from '@/components/AuthComponent';
+import AuthGuard from '@/components/AuthGuard';
 
 export default function TrainingUploadPage() {
-  const [user, setUser] = useState<User | null>(null);
-
-  const handleAuthStateChange = (user: User | null) => {
-    setUser(user);
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="container mx-auto px-4">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            教師データ収集システム
-          </h1>
-          <p className="text-gray-600 max-w-2xl mx-auto">
-            UI/UXデザインの画像をアップロードすると、AIが自動で評価・分析を行い、
-            システムの学習データとして活用されます。
-          </p>
-        </div>
+    <AuthGuard>
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              教師データ収集システム
+            </h1>
+            <p className="text-gray-600 max-w-2xl mx-auto">
+              UI/UXデザインの画像をアップロードすると、AIが自動で評価・分析を行い、
+              システムの学習データとして活用されます。
+            </p>
+          </div>
 
-        {/* 認証コンポーネント */}
-        <div className="mb-8">
-          <AuthComponent onAuthStateChange={handleAuthStateChange} />
-        </div>
-
-        {/* アップロードフォーム（ログイン時のみ表示） */}
-        {user && <UploadForm />}
+          {/* アップロードフォーム */}
+          <UploadForm />
         
         <div className="mt-12 max-w-4xl mx-auto">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -114,6 +102,6 @@ export default function TrainingUploadPage() {
           },
         }}
       />
-    </div>
+    </AuthGuard>
   );
 }
