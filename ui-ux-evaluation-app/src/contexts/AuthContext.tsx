@@ -28,11 +28,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // 初期セッションを取得
     const initializeAuth = async () => {
       try {
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
-        setSession(initialSession);
-        setUser(initialSession?.user ?? null);
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        console.log('AuthContext - 初期セッション:', initialSession, 'エラー:', error);
+        
+        if (error) {
+          console.error('セッション取得エラー:', error);
+          setSession(null);
+          setUser(null);
+        } else {
+          setSession(initialSession);
+          setUser(initialSession?.user ?? null);
+        }
       } catch (error) {
         console.error('初期認証エラー:', error);
+        setSession(null);
+        setUser(null);
       } finally {
         setLoading(false);
       }
@@ -43,15 +53,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // 認証状態の変更を監視
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
+        console.log('AuthContext - 認証状態変更:', event, 'セッション:', currentSession);
+        
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         
         // イベントに応じた処理
         if (event === 'SIGNED_IN') {
           // ログイン成功時の処理
+          console.log('AuthContext - ログイン成功');
           router.refresh();
         } else if (event === 'SIGNED_OUT') {
           // ログアウト時の処理
+          console.log('AuthContext - ログアウト実行');
           router.push('/login');
         } else if (event === 'TOKEN_REFRESHED') {
           // トークンリフレッシュ時の処理
