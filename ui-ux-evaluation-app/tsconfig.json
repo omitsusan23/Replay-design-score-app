@@ -20,11 +20,12 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
-      "@/services/*": ["./services/*"],
-      "@/types/*": ["./types/*"],
-      "@/lib/*": ["./lib/*"],
-      "@/libs/*": ["./libs/*"],
-      "@/components/*": ["./components/*"]
+      "@/services/*": ["./services/*", "./src/services/*"],
+      "@/types/*": ["./types/*", "./src/types/*"],
+      "@/lib/*": ["./lib/*", "./src/lib/*"],
+      "@/libs/*": ["./libs/*", "./src/libs/*"],
+      "@/components/*": ["./components/*", "./src/components/*"],
+      "@/contexts/*": ["./src/contexts/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "services/**/*.ts", "types/**/*.ts", "components/**/*.tsx", "lib/**/*.ts"],

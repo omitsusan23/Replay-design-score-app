@@ -20,7 +20,8 @@ export async function POST(request: NextRequest) {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // セッションベースの認証チェック
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    let { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    let user = null;
     
     if (sessionError || !session || !session.user) {
       // リクエストヘッダーからセッションを取得
@@ -30,17 +31,16 @@ export async function POST(request: NextRequest) {
       }
 
       const token = authHeader.substring(7);
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
 
-      if (authError || !user) {
+      if (authError || !authUser) {
         return NextResponse.json({ error: '無効なトークンです' }, { status: 401 });
       }
       
-      // userを設定
-      session = { user };
+      user = authUser;
+    } else {
+      user = session.user;
     }
-
-    const user = session.user;
 
     // フォームデータの取得
     const formData = await request.formData();

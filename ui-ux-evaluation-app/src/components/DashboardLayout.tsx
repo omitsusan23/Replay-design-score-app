@@ -19,7 +19,14 @@ interface DashboardLayoutProps {
   children: React.ReactNode;
 }
 
-const navigationItems = [
+interface NavigationItem {
+  name: string;
+  href: string;
+  icon: any;
+  description: string;
+}
+
+const navigationItems: NavigationItem[] = [
   {
     name: 'ダッシュボード',
     href: '/dashboard',
@@ -138,7 +145,7 @@ function SidebarContent({
   user, 
   onSignOut 
 }: {
-  navigationItems: typeof navigationItems;
+  navigationItems: NavigationItem[];
   pathname: string;
   user: any;
   onSignOut: () => void;
