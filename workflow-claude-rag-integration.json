@@ -1,0 +1,290 @@
+{
+  "name": "Claude RAG Integration Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook/claude-rag",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "claude-rag-webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://replay-postgres-pgvector:5432",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.search_query }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "table",
+              "value": "design_embeddings"
+            },
+            {
+              "name": "embedding_field",
+              "value": "embedding"
+            },
+            {
+              "name": "limit",
+              "value": "3"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "rag-search",
+      "name": "RAG Vector Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "postgres-auth",
+          "name": "PostgreSQL Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.CLAUDE_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "claude-3-5-sonnet-20241022"
+            },
+            {
+              "name": "max_tokens",
+              "value": "2048"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\": \"user\", \"content\": \"以下の検索結果を参考にして、UIデザインについて回答してください:\\n\\n検索結果:\\n\" + JSON.stringify($('RAG Vector Search').first().json) + \"\\n\\n質問: \" + $('Webhook Trigger').first().json.body.question}]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "claude-response",
+      "name": "Claude API Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://replay-meilisearch:7700/indexes/ui_designs/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.MEILI_MASTER_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.search_query }}"
+            },
+            {
+              "name": "limit",
+              "value": "5"
+            },
+            {
+              "name": "attributesToHighlight",
+              "value": "=[\"title\", \"description\", \"tags\"]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "meilisearch-query",
+      "name": "Meilisearch Query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "// RAGシステム統合処理\nconst webhookData = $('Webhook Trigger').first().json.body;\nconst ragResults = $('RAG Vector Search').first().json;\nconst meilisearchResults = $('Meilisearch Query').first().json;\nconst claudeResponse = $('Claude API Response').first().json;\n\n// 結果を統合\nconst integratedResponse = {\n  timestamp: new Date().toISOString(),\n  query: webhookData.question || webhookData.search_query,\n  rag_results: {\n    vector_search: ragResults,\n    text_search: meilisearchResults.hits || []\n  },\n  claude_analysis: {\n    response: claudeResponse.content?.[0]?.text || claudeResponse.message,\n    model: 'claude-3-5-sonnet-20241022',\n    confidence: 0.85\n  },\n  metadata: {\n    processing_time_ms: Date.now() - new Date(webhookData.timestamp || Date.now()).getTime(),\n    sources_count: (ragResults?.length || 0) + (meilisearchResults?.hits?.length || 0)\n  }\n};\n\nreturn integratedResponse;"
+      },
+      "id": "integration-processor",
+      "name": "RAG Integration Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://replay-postgres-pgvector:5432",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "table",
+              "value": "rag_query_logs"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify($json) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "save-results",
+      "name": "Save Results to DB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('RAG Integration Processor').first().json, null, 2) }}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "RAG Vector Search",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Meilisearch Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG Vector Search": {
+      "main": [
+        [
+          {
+            "node": "Claude API Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude API Response": {
+      "main": [
+        [
+          {
+            "node": "RAG Integration Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meilisearch Query": {
+      "main": [
+        [
+          {
+            "node": "RAG Integration Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG Integration Processor": {
+      "main": [
+        [
+          {
+            "node": "Save Results to DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Results to DB": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {},
+  "tags": ["RAG", "Claude", "AI", "Integration"],
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

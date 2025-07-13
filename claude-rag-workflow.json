@@ -1,0 +1,381 @@
+{
+  "name": "Claude RAG Integration System",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "claude-rag-api",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-node-001",
+      "name": "API Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 入力データ検証と前処理\nconst input = $json.body;\n\n// 必須フィールドの検証\nif (!input.question && !input.search_query) {\n  throw new Error('question または search_query が必要です');\n}\n\n// クエリの正規化\nconst query = input.question || input.search_query;\nconst normalizedQuery = query.toLowerCase().trim();\n\n// 検索タイプの判定\nconst searchType = input.search_type || 'comprehensive';\nconst maxResults = Math.min(input.max_results || 5, 10);\n\n// タイムスタンプ付きで出力\nreturn {\n  ...input,\n  normalized_query: normalizedQuery,\n  search_type: searchType,\n  max_results: maxResults,\n  timestamp: new Date().toISOString(),\n  session_id: input.session_id || `session_${Date.now()}`\n};"
+      },
+      "id": "preprocessor-node-002",
+      "name": "Input Preprocessor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://replay-postgres-pgvector:15432/api/vector-search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.POSTGRES_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.normalized_query }}"
+            },
+            {
+              "name": "table",
+              "value": "design_embeddings"
+            },
+            {
+              "name": "embedding_field",
+              "value": "embedding"
+            },
+            {
+              "name": "limit",
+              "value": "={{ $json.max_results }}"
+            },
+            {
+              "name": "threshold",
+              "value": "0.7"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "vector-search-003",
+      "name": "RAG Vector Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://replay-meilisearch:7700/indexes/ui_designs/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.MEILI_MASTER_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.normalized_query }}"
+            },
+            {
+              "name": "limit",
+              "value": "={{ $json.max_results }}"
+            },
+            {
+              "name": "attributesToHighlight",
+              "value": "[\"title\", \"description\", \"tags\", \"ui_type\"]"
+            },
+            {
+              "name": "attributesToSearchOn",
+              "value": "[\"title\", \"description\", \"content\", \"tags\"]"
+            },
+            {
+              "name": "showMatchesPosition",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "meilisearch-004",
+      "name": "Meilisearch Query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// RAG検索結果の統合と分析\nconst preprocessorData = $('Input Preprocessor').first().json;\nconst vectorResults = $('RAG Vector Search').first().json;\nconst meilisearchResults = $('Meilisearch Query').first().json;\n\n// 結果の統合\nconst combinedResults = {\n  vector_search: {\n    results: vectorResults.results || [],\n    count: vectorResults.count || 0,\n    processing_time: vectorResults.processing_time || 0\n  },\n  text_search: {\n    hits: meilisearchResults.hits || [],\n    query: meilisearchResults.query || '',\n    processingTimeMs: meilisearchResults.processingTimeMs || 0,\n    hitsPerPage: meilisearchResults.hitsPerPage || 0\n  }\n};\n\n// 関連度スコアの計算\nconst totalSources = combinedResults.vector_search.count + combinedResults.text_search.hits.length;\nconst relevanceScore = totalSources > 0 ? Math.min(totalSources / 10, 1.0) : 0.1;\n\n// Claude用のコンテキスト構築\nconst contextForClaude = {\n  search_query: preprocessorData.normalized_query,\n  vector_results: combinedResults.vector_search.results.slice(0, 3),\n  text_results: combinedResults.text_search.hits.slice(0, 3),\n  metadata: {\n    total_sources: totalSources,\n    relevance_score: relevanceScore,\n    search_type: preprocessorData.search_type\n  }\n};\n\nreturn {\n  ...preprocessorData,\n  rag_results: combinedResults,\n  claude_context: contextForClaude,\n  ready_for_claude: true\n};"
+      },
+      "id": "integration-005",
+      "name": "RAG Integration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.CLAUDE_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "claude-3-5-sonnet-20241022"
+            },
+            {
+              "name": "max_tokens",
+              "value": "3000"
+            },
+            {
+              "name": "temperature",
+              "value": "0.3"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\n  \"role\": \"user\",\n  \"content\": `あなたはUI/UXデザインの専門家です。以下の検索結果を参考にして、ユーザーの質問に専門的で実用的な回答をしてください。\n\n## 検索結果\n\n### ベクター検索結果（類似度順）:\n${JSON.stringify($json.claude_context.vector_results, null, 2)}\n\n### テキスト検索結果（関連度順）:\n${JSON.stringify($json.claude_context.text_results, null, 2)}\n\n### メタデータ:\n- 総ソース数: ${$json.claude_context.metadata.total_sources}\n- 関連度スコア: ${$json.claude_context.metadata.relevance_score}\n- 検索タイプ: ${$json.claude_context.metadata.search_type}\n\n## ユーザーの質問:\n${$json.question || $json.search_query}\n\n## 回答指針:\n1. 検索結果の内容を具体的に参照してください\n2. 実践的なアドバイスを含めてください\n3. 可能であれば具体例や数値を示してください\n4. 日本語で分かりやすく回答してください\n5. 信頼性の高い情報源に基づいて回答してください`\n}]"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "claude-api-006",
+      "name": "Claude Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 最終レスポンスの構築\nconst originalData = $('Input Preprocessor').first().json;\nconst ragResults = $('RAG Integration').first().json;\nconst claudeResponse = $('Claude Analysis').first().json;\n\n// Claude レスポンスの解析\nconst claudeContent = claudeResponse.content?.[0]?.text || claudeResponse.message || 'レスポンスの取得に失敗しました';\n\n// 処理時間の計算\nconst endTime = Date.now();\nconst startTime = new Date(originalData.timestamp).getTime();\nconst totalProcessingTime = endTime - startTime;\n\n// 最終レスポンスの構築\nconst finalResponse = {\n  success: true,\n  timestamp: new Date().toISOString(),\n  session_id: originalData.session_id,\n  query: {\n    original: originalData.question || originalData.search_query,\n    normalized: originalData.normalized_query,\n    type: originalData.search_type\n  },\n  response: {\n    content: claudeContent,\n    model: 'claude-3-5-sonnet-20241022',\n    confidence: ragResults.claude_context.metadata.relevance_score\n  },\n  sources: {\n    vector_search: {\n      count: ragResults.rag_results.vector_search.count,\n      results: ragResults.rag_results.vector_search.results.slice(0, 3)\n    },\n    text_search: {\n      count: ragResults.rag_results.text_search.hits.length,\n      results: ragResults.rag_results.text_search.hits.slice(0, 3)\n    },\n    total_sources: ragResults.claude_context.metadata.total_sources\n  },\n  performance: {\n    total_processing_time_ms: totalProcessingTime,\n    vector_search_time_ms: ragResults.rag_results.vector_search.processing_time,\n    text_search_time_ms: ragResults.rag_results.text_search.processingTimeMs,\n    claude_response_time_ms: claudeResponse.usage?.processing_time || 0\n  },\n  metadata: {\n    workflow_version: '1.0.0',\n    api_version: 'v1',\n    features_used: ['rag_vector_search', 'meilisearch', 'claude_analysis']\n  }\n};\n\nreturn finalResponse;"
+      },
+      "id": "response-builder-007",
+      "name": "Response Builder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://replay-postgres-pgvector:15432/api/query-logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "session_id",
+              "value": "={{ $json.session_id }}"
+            },
+            {
+              "name": "query",
+              "value": "={{ $json.query.original }}"
+            },
+            {
+              "name": "response_length",
+              "value": "={{ $json.response.content.length }}"
+            },
+            {
+              "name": "sources_count",
+              "value": "={{ $json.sources.total_sources }}"
+            },
+            {
+              "name": "processing_time_ms",
+              "value": "={{ $json.performance.total_processing_time_ms }}"
+            },
+            {
+              "name": "confidence_score",
+              "value": "={{ $json.response.confidence }}"
+            }
+          ]
+        },
+        "options": {
+          "continueOnFail": true
+        }
+      },
+      "id": "logging-008",
+      "name": "Query Logging",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Response Builder').first().json, null, 2) }}",
+        "responseHeaders": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            },
+            {
+              "name": "X-Processing-Time",
+              "value": "={{ $('Response Builder').first().json.performance.total_processing_time_ms }}ms"
+            },
+            {
+              "name": "X-Sources-Count",
+              "value": "={{ $('Response Builder').first().json.sources.total_sources }}"
+            },
+            {
+              "name": "X-Confidence-Score",
+              "value": "={{ $('Response Builder').first().json.response.confidence }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "webhook-response-009",
+      "name": "API Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1580, 400]
+    }
+  ],
+  "connections": {
+    "API Webhook": {
+      "main": [
+        [
+          {
+            "node": "Input Preprocessor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input Preprocessor": {
+      "main": [
+        [
+          {
+            "node": "RAG Vector Search",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Meilisearch Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG Vector Search": {
+      "main": [
+        [
+          {
+            "node": "RAG Integration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meilisearch Query": {
+      "main": [
+        [
+          {
+            "node": "RAG Integration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG Integration": {
+      "main": [
+        [
+          {
+            "node": "Claude Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Analysis": {
+      "main": [
+        [
+          {
+            "node": "Response Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Builder": {
+      "main": [
+        [
+          {
+            "node": "Query Logging",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "API Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {}
+}
