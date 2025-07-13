@@ -1,0 +1,299 @@
+version: '3.8'
+
+services:
+  # =============================================================================
+  # PostgreSQL + pgvector (Supabase互換)
+  # =============================================================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: replay-postgres-pgvector
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_secure_password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migration_design_embeddings_3072.sql:/docker-entrypoint-initdb.d/01-migration.sql
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - replay-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    command: >
+      postgres
+      -c shared_preload_libraries=vector
+      -c log_statement=all
+      -c log_destination=stderr
+      -c logging_collector=on
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+
+  # =============================================================================
+  # Meilisearch (日本語対応検索エンジン)
+  # =============================================================================
+  meilisearch:
+    image: getmeili/meilisearch:v1.7
+    container_name: replay-meilisearch
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-your_meili_master_key}
+      MEILI_ENV: ${MEILI_ENV:-development}
+      MEILI_HTTP_ADDR: 0.0.0.0:7700
+      MEILI_LOG_LEVEL: ${MEILI_LOG_LEVEL:-INFO}
+      MEILI_NO_ANALYTICS: ${MEILI_NO_ANALYTICS:-true}
+      MEILI_EXPERIMENTAL_ENABLE_METRICS: ${MEILI_ENABLE_METRICS:-false}
+    ports:
+      - "${MEILI_PORT:-7700}:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+      - ./meilisearch-config:/config
+    networks:
+      - replay-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7700/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    command: >
+      meilisearch
+      --import-snapshot /config/initial-snapshot.snap
+      --schedule-snapshot 3600
+
+  # =============================================================================
+  # n8n (Claude API連携ワークフロー)
+  # =============================================================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: replay-n8n
+    environment:
+      # 基本設定
+      N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE:-true}
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-your_n8n_password}
+      
+      # データベース設定
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${N8N_DB_NAME:-n8n}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-postgres}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-your_secure_password}
+      
+      # ワークフロー設定
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_EDITOR_BASE_URL: http://${N8N_HOST:-localhost}:${N8N_PORT:-5678}
+      
+      # セキュリティ設定
+      N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
+      N8N_JWT_AUTH_ACTIVE: ${N8N_JWT_AUTH_ACTIVE:-true}
+      N8N_JWT_AUTH_HEADER: ${N8N_JWT_AUTH_HEADER:-authorization}
+      N8N_JWT_AUTH_HEADER_VALUE_PREFIX: ${N8N_JWT_AUTH_HEADER_VALUE_PREFIX:-Bearer }
+      
+      # 外部サービス連携
+      N8N_CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+      N8N_OPENAI_API_KEY: ${OPENAI_API_KEY}
+      N8N_SUPABASE_URL: http://postgres:5432
+      N8N_MEILISEARCH_URL: http://meilisearch:7700
+      N8N_MEILISEARCH_API_KEY: ${MEILI_MASTER_KEY:-your_meili_master_key}
+      
+      # ログ設定
+      N8N_LOG_LEVEL: ${N8N_LOG_LEVEL:-info}
+      N8N_LOG_OUTPUT: console,file
+      N8N_LOG_FILE_LOCATION: /home/node/.n8n/logs/
+      
+      # 実行設定
+      EXECUTIONS_TIMEOUT: ${N8N_EXECUTIONS_TIMEOUT:-3600}
+      EXECUTIONS_TIMEOUT_MAX: ${N8N_EXECUTIONS_TIMEOUT_MAX:-7200}
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+      EXECUTIONS_DATA_MAX_AGE: 336  # 14 days
+      
+      # Webhook設定
+      WEBHOOK_URL: http://${N8N_HOST:-localhost}:${N8N_PORT:-5678}
+      N8N_PAYLOAD_SIZE_MAX: 16
+      
+      # パッケージ許可
+      NODE_OPTIONS: "--max-old-space-size=2048"
+      N8N_DIAGNOSTICS_ENABLED: ${N8N_DIAGNOSTICS_ENABLED:-false}
+      
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n-workflows:/home/node/.n8n/workflows
+      - ./n8n-credentials:/home/node/.n8n/credentials
+      - ./n8n-config:/home/node/.n8n/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker操作用
+    networks:
+      - replay-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # =============================================================================
+  # Redis (キャッシュ・セッション管理)
+  # =============================================================================
+  redis:
+    image: redis:7.2-alpine
+    container_name: replay-redis
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-your_redis_password}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis-config/redis.conf:/etc/redis/redis.conf
+    networks:
+      - replay-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    command: >
+      redis-server /etc/redis/redis.conf
+      --requirepass ${REDIS_PASSWORD:-your_redis_password}
+
+  # =============================================================================
+  # Nginx (リバースプロキシ・ロードバランサー)
+  # =============================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: replay-nginx
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx-config/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx-config/conf.d:/etc/nginx/conf.d
+      - ./ssl-certificates:/etc/nginx/ssl
+      - nginx_logs:/var/log/nginx
+    networks:
+      - replay-network
+    depends_on:
+      - n8n
+      - meilisearch
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # 開発・監視用サービス
+  # =============================================================================
+  
+  # pgAdmin (PostgreSQL管理)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: replay-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_LISTEN_PORT: 5050
+    ports:
+      - "${PGADMIN_PORT:-5050}:5050"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin-config:/pgadmin4/config
+    networks:
+      - replay-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - development
+
+  # Grafana (監視ダッシュボード)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: replay-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana-config:/etc/grafana
+    networks:
+      - replay-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # Prometheus (メトリクス収集)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: replay-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./prometheus-config/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - replay-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+# =============================================================================
+# ボリューム定義
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  meilisearch_data:
+    driver: local
+  n8n_data:
+    driver: local
+  redis_data:
+    driver: local
+  nginx_logs:
+    driver: local
+  pgadmin_data:
+    driver: local
+  grafana_data:
+    driver: local
+  prometheus_data:
+    driver: local
+
+# =============================================================================
+# ネットワーク定義
+# =============================================================================
+networks:
+  replay-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1

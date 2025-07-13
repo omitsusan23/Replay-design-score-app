@@ -1,0 +1,23 @@
+# Instructor-XL RAGシステム用 依存関係
+
+# 必須パッケージ
+torch>=2.0.0
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+
+# データベース関連
+psycopg2-binary>=2.9.0
+numpy>=1.24.0
+
+# ユーティリティ
+python-dotenv>=1.0.0
+tqdm>=4.65.0
+
+# 開発・テスト用（オプション）
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+jupyter>=1.0.0
+
+# 推奨: GPU環境の場合
+# torch[cuda]>=2.0.0  # CUDA環境用
+# accelerate>=0.20.0  # モデル高速化用

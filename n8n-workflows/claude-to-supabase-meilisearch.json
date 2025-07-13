@@ -1,0 +1,642 @@
+{
+  "name": "Claude API → Supabase + Meilisearch 自動同期",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "figma-analysis",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook: Figma分析トリガー",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "figma-analysis-webhook"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "figma_url",
+              "value": "={{ $json.figma_url }}"
+            },
+            {
+              "name": "analysis_mode",
+              "value": "={{ $json.analysis_mode || 'comprehensive' }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ new Date().toISOString() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "validate-input",
+      "name": "入力検証・前処理",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "requestMethod": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "options": {
+          "headers": {
+            "anthropic-version": "2023-06-01"
+          },
+          "timeout": 60000
+        },
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "model",
+              "value": "claude-3-5-sonnet-20241022"
+            },
+            {
+              "name": "max_tokens",
+              "value": "4096"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\": \"user\", \"content\": `あなたはUI/UXデザインの専門家です。以下のFigma URLのデザインを分析し、JSON形式で回答してください。\\n\\nFigma URL: ${$json.figma_url}\\n\\n以下の形式で分析結果を出力してください：\\n\\n\\`\\`\\`json\\n{\\n  \\\"genre\\\": \\\"チャットUI|予約画面|ダッシュボード|フォーム|ナビゲーション|カード|モーダル|リスト|その他\\\",\\n  \\\"ui_component_type\\\": \\\"具体的なUIコンポーネント種別\\\",\\n  \\\"scores\\\": {\\n    \\\"aesthetic\\\": 0.85,\\n    \\\"consistency\\\": 0.92,\\n    \\\"hierarchy\\\": 0.78,\\n    \\\"usability\\\": 0.88,\\n    \\\"responsive\\\": 0.75,\\n    \\\"accessibility\\\": 0.65\\n  },\\n  \\\"summary\\\": \\\"デザインの簡潔なサマリー（1-2文）\\\",\\n  \\\"detailed_analysis\\\": \\\"詳細な分析結果\\\",\\n  \\\"confidence_score\\\": 0.85\\n}\\n\\`\\`\\`\\n\\n評価基準：\\n- aesthetic: 視覚的魅力、色彩、レイアウトの美しさ\\n- consistency: デザインシステムの一貫性、統一感\\n- hierarchy: 情報階層の明確さ、視線誘導\\n- usability: 使いやすさ、直感性、操作性\\n- responsive: レスポンシブ対応、画面サイズ適応\\n- accessibility: アクセシビリティ、ユーザビリティ配慮\\n\\n各スコアは0.0-1.0の範囲で評価してください。`}]"
+            },
+            {
+              "name": "temperature",
+              "value": "0.3"
+            }
+          ]
+        }
+      },
+      "id": "claude-analysis",
+      "name": "Claude: デザイン分析",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        680,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "claude-api-key",
+          "name": "Claude API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Claude レスポンスを解析してJSONデータを抽出\nconst claudeResponse = $input.first().json;\nconst responseText = claudeResponse.content[0].text;\n\n// JSON部分を抽出\nlet analysisData;\ntry {\n  const jsonMatch = responseText.match(/```json\\s*({[\\s\\S]*?})\\s*```/);\n  if (jsonMatch) {\n    analysisData = JSON.parse(jsonMatch[1]);\n  } else {\n    // フォールバック解析\n    analysisData = {\n      genre: \"その他\",\n      ui_component_type: \"不明\",\n      scores: {\n        aesthetic: 0.5,\n        consistency: 0.5,\n        hierarchy: 0.5,\n        usability: 0.5,\n        responsive: 0.5,\n        accessibility: 0.5\n      },\n      summary: \"分析に失敗しました\",\n      detailed_analysis: responseText,\n      confidence_score: 0.3\n    };\n  }\n} catch (error) {\n  // エラー時のフォールバック\n  analysisData = {\n    genre: \"その他\",\n    ui_component_type: \"不明\",\n    scores: {\n      aesthetic: 0.5,\n      consistency: 0.5,\n      hierarchy: 0.5,\n      usability: 0.5,\n      responsive: 0.5,\n      accessibility: 0.5\n    },\n    summary: \"JSON解析エラー\",\n    detailed_analysis: responseText,\n    confidence_score: 0.2\n  };\n}\n\n// スコア正規化\nObject.keys(analysisData.scores).forEach(key => {\n  let score = analysisData.scores[key];\n  if (score > 1) score = score / 10; // 10点満点の場合は正規化\n  analysisData.scores[key] = Math.max(0, Math.min(1, score));\n});\n\n// 結果データ構築\nconst result = {\n  figma_url: $('validate-input').first().json.figma_url,\n  analysis: {\n    genre: analysisData.genre,\n    ui_component_type: analysisData.ui_component_type,\n    scores: analysisData.scores,\n    claude_summary: analysisData.summary || analysisData.detailed_analysis?.substring(0, 200) + '...',\n    claude_raw_response: responseText,\n    confidence_score: analysisData.confidence_score || 0.7\n  },\n  timestamp: new Date().toISOString(),\n  processing_step: 'claude_completed'\n};\n\nreturn result;"
+      },
+      "id": "parse-claude-response",
+      "name": "Claude レスポンス解析",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "requestMethod": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "options": {
+          "timeout": 30000
+        },
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "model",
+              "value": "text-embedding-3-large"
+            },
+            {
+              "name": "input",
+              "value": "=[\\n  $json.analysis.claude_raw_response,\\n  `UI Genre: ${$json.analysis.genre}. Component: ${$json.analysis.ui_component_type}`,\\n  `Design Scores - Aesthetic: ${($json.analysis.scores.aesthetic * 10).toFixed(1)}/10, Consistency: ${($json.analysis.scores.consistency * 10).toFixed(1)}/10, Hierarchy: ${($json.analysis.scores.hierarchy * 10).toFixed(1)}/10, Usability: ${($json.analysis.scores.usability * 10).toFixed(1)}/10, Responsive: ${($json.analysis.scores.responsive * 10).toFixed(1)}/10, Accessibility: ${($json.analysis.scores.accessibility * 10).toFixed(1)}/10`\\n]"
+            },
+            {
+              "name": "encoding_format",
+              "value": "float"
+            },
+            {
+              "name": "dimensions",
+              "value": "3072"
+            }
+          ]
+        }
+      },
+      "id": "openai-embeddings",
+      "name": "OpenAI: 埋め込み生成",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-api-key",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// OpenAI埋め込みレスポンスを処理\nconst embeddingResponse = $input.first().json;\nconst analysisData = $('parse-claude-response').first().json;\n\n// 埋め込みデータを整形\nconst embeddings = embeddingResponse.data.map((item, index) => {\n  const types = ['main', 'genre', 'scores'];\n  const textContents = [\n    analysisData.analysis.claude_raw_response,\n    `UI Genre: ${analysisData.analysis.genre}. Component: ${analysisData.analysis.ui_component_type}`,\n    `Design Scores - Aesthetic: ${(analysisData.analysis.scores.aesthetic * 10).toFixed(1)}/10, Consistency: ${(analysisData.analysis.scores.consistency * 10).toFixed(1)}/10`\n  ];\n  \n  return {\n    type: types[index] || 'unknown',\n    embedding: item.embedding,\n    text_content: textContents[index] || '',\n    token_count: Math.ceil(textContents[index]?.length / 4) || 0,\n    dimensions: item.embedding.length\n  };\n});\n\n// 完全なデータセット構築\nconst completeData = {\n  figma_url: analysisData.figma_url,\n  analysis: analysisData.analysis,\n  embeddings: embeddings,\n  save_to_meilisearch: true,\n  metadata: {\n    processing_workflow: 'n8n_automated',\n    processed_at: new Date().toISOString(),\n    total_tokens: embeddingResponse.usage?.total_tokens || 0\n  },\n  processing_step: 'embeddings_completed'\n};\n\nreturn completeData;"
+      },
+      "id": "prepare-save-data",
+      "name": "保存データ準備",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{ $env.N8N_SUPABASE_URL }}/rest/v1/training_examples",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "headers": {
+            "Prefer": "return=representation"
+          }
+        },
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "figma_url",
+              "value": "={{ $json.figma_url }}"
+            },
+            {
+              "name": "genre",
+              "value": "={{ $json.analysis.genre }}"
+            },
+            {
+              "name": "ui_component_type",
+              "value": "={{ $json.analysis.ui_component_type }}"
+            },
+            {
+              "name": "score_aesthetic",
+              "value": "={{ $json.analysis.scores.aesthetic }}"
+            },
+            {
+              "name": "score_consistency",
+              "value": "={{ $json.analysis.scores.consistency }}"
+            },
+            {
+              "name": "score_hierarchy",
+              "value": "={{ $json.analysis.scores.hierarchy }}"
+            },
+            {
+              "name": "score_usability",
+              "value": "={{ $json.analysis.scores.usability }}"
+            },
+            {
+              "name": "score_responsive",
+              "value": "={{ $json.analysis.scores.responsive }}"
+            },
+            {
+              "name": "score_accessibility",
+              "value": "={{ $json.analysis.scores.accessibility }}"
+            },
+            {
+              "name": "claude_raw_response",
+              "value": "={{ $json.analysis.claude_raw_response }}"
+            },
+            {
+              "name": "claude_summary",
+              "value": "={{ $json.analysis.claude_summary }}"
+            },
+            {
+              "name": "upload_source",
+              "value": "n8n_automated"
+            },
+            {
+              "name": "processing_status",
+              "value": "completed"
+            },
+            {
+              "name": "tags",
+              "value": "=[\n  $json.analysis.genre,\n  $json.analysis.ui_component_type,\n  ($json.analysis.scores.aesthetic + $json.analysis.scores.consistency + $json.analysis.scores.hierarchy + $json.analysis.scores.usability + $json.analysis.scores.responsive + $json.analysis.scores.accessibility) / 6 >= 0.8 ? 'high-quality' : 'standard-quality',\n  'n8n-automated'\n]"
+            }
+          ]
+        }
+      },
+      "id": "save-to-supabase-training",
+      "name": "Supabase: training_examples 保存",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1560,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "supabase-service-role",
+          "name": "Supabase Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 各埋め込みをSupabaseに保存するためのデータ準備\nconst trainingExample = $('save-to-supabase-training').first().json;\nconst saveData = $('prepare-save-data').first().json;\n\nif (!trainingExample || !trainingExample.id) {\n  throw new Error('Training example ID not found');\n}\n\nconst exampleId = trainingExample.id;\nconst embeddingRecords = saveData.embeddings.map(emb => ({\n  example_id: exampleId,\n  embedding: JSON.stringify(emb.embedding), // PostgreSQL vector型用\n  text_content: emb.text_content,\n  embedding_type: emb.type,\n  model_name: 'text-embedding-3-large',\n  embedding_dimensions: emb.dimensions,\n  token_count: emb.token_count,\n  metadata: JSON.stringify({\n    embedding_type: emb.type,\n    token_count: emb.token_count,\n    generated_at: new Date().toISOString(),\n    workflow_id: $workflow.id\n  })\n}));\n\nreturn embeddingRecords.map(record => ({ ...record, training_example_id: exampleId }));"
+      },
+      "id": "prepare-embeddings-data",
+      "name": "埋め込みデータ準備",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{ $env.N8N_SUPABASE_URL }}/rest/v1/design_embeddings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "headers": {
+            "Prefer": "return=representation"
+          },
+          "batching": {
+            "batchSize": 10
+          }
+        },
+        "sendBinaryData": false,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "example_id",
+              "value": "={{ $json.example_id }}"
+            },
+            {
+              "name": "embedding",
+              "value": "={{ $json.embedding }}"
+            },
+            {
+              "name": "text_content",
+              "value": "={{ $json.text_content }}"
+            },
+            {
+              "name": "embedding_type",
+              "value": "={{ $json.embedding_type }}"
+            },
+            {
+              "name": "model_name",
+              "value": "={{ $json.model_name }}"
+            },
+            {
+              "name": "embedding_dimensions",
+              "value": "={{ $json.embedding_dimensions }}"
+            },
+            {
+              "name": "token_count",
+              "value": "={{ $json.token_count }}"
+            },
+            {
+              "name": "metadata",
+              "value": "={{ $json.metadata }}"
+            }
+          ]
+        }
+      },
+      "id": "save-to-supabase-embeddings",
+      "name": "Supabase: design_embeddings 保存",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2000,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "supabase-service-role",
+          "name": "Supabase Service Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Meilisearch用ドキュメント構築\nconst trainingExample = $('save-to-supabase-training').first().json;\nconst saveData = $('prepare-save-data').first().json;\n\nconst document = {\n  id: trainingExample.id,\n  figma_url: saveData.figma_url,\n  title: `${saveData.analysis.genre} - ${saveData.analysis.ui_component_type}`,\n  description: saveData.analysis.claude_summary,\n  content: saveData.analysis.claude_raw_response,\n  genre: saveData.analysis.genre,\n  ui_component_type: saveData.analysis.ui_component_type,\n  \n  // スコア（検索・フィルタ用）\n  total_score: Object.values(saveData.analysis.scores).reduce((a, b) => a + b, 0) / Object.values(saveData.analysis.scores).length,\n  score_aesthetic: saveData.analysis.scores.aesthetic,\n  score_consistency: saveData.analysis.scores.consistency,\n  score_hierarchy: saveData.analysis.scores.hierarchy,\n  score_usability: saveData.analysis.scores.usability,\n  score_responsive: saveData.analysis.scores.responsive,\n  score_accessibility: saveData.analysis.scores.accessibility,\n  \n  // 検索用タグ\n  tags: [\n    saveData.analysis.genre,\n    saveData.analysis.ui_component_type,\n    'n8n-automated',\n    Object.values(saveData.analysis.scores).reduce((a, b) => a + b, 0) / Object.values(saveData.analysis.scores).length >= 0.8 ? 'high-quality' : 'standard-quality'\n  ],\n  \n  // メタデータ\n  confidence_score: saveData.analysis.confidence_score,\n  processing_status: 'completed',\n  created_at: new Date().toISOString(),\n  embedding_types: saveData.embeddings.map(emb => emb.type),\n  embedding_count: saveData.embeddings.length,\n  workflow_source: 'n8n_automated'\n};\n\nreturn document;"
+      },
+      "id": "prepare-meilisearch-data",
+      "name": "Meilisearch データ準備",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{ $env.N8N_MEILISEARCH_URL }}/indexes/design-embeddings/documents",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "headers": {
+            "Authorization": "Bearer {{ $env.N8N_MEILISEARCH_API_KEY }}"
+          }
+        },
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "",
+              "value": "={{ [$json] }}"
+            }
+          ]
+        }
+      },
+      "id": "save-to-meilisearch",
+      "name": "Meilisearch: ドキュメント保存",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1780,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 最終結果の集約と成功レスポンス構築\nconst trainingExample = $('save-to-supabase-training').first().json;\nconst embeddingResults = $('save-to-supabase-embeddings').all();\nconst meilisearchResult = $('save-to-meilisearch').first().json;\nconst originalData = $('prepare-save-data').first().json;\n\nconst summary = {\n  success: true,\n  training_example_id: trainingExample.id,\n  embedding_ids: embeddingResults.map(result => result.json.id),\n  meilisearch_task_uid: meilisearchResult.taskUid,\n  figma_url: originalData.figma_url,\n  analysis_summary: {\n    genre: originalData.analysis.genre,\n    ui_component_type: originalData.analysis.ui_component_type,\n    confidence_score: originalData.analysis.confidence_score,\n    total_score: Object.values(originalData.analysis.scores).reduce((a, b) => a + b, 0) / Object.values(originalData.analysis.scores).length\n  },\n  processing_summary: {\n    supabase_saved: true,\n    meilisearch_saved: true,\n    embeddings_count: embeddingResults.length,\n    total_processing_time_ms: Date.now() - new Date($('validate-input').first().json.timestamp).getTime()\n  },\n  processed_at: new Date().toISOString(),\n  workflow_id: $workflow.id\n};\n\nreturn summary;"
+      },
+      "id": "final-response",
+      "name": "最終レスポンス構築",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook レスポンス",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "error-condition",
+              "leftValue": "={{ $json.error !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "error-check",
+      "name": "エラーチェック",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// エラーハンドリングとログ記録\nconst errorNode = $input.first();\nconst error = {\n  error: true,\n  message: 'ワークフロー処理中にエラーが発生しました',\n  details: errorNode.json || 'Unknown error',\n  timestamp: new Date().toISOString(),\n  workflow_id: $workflow.id,\n  node_name: errorNode.node || 'unknown'\n};\n\n// エラーログをコンソールに出力\nconsole.error('n8n Workflow Error:', error);\n\nreturn error;"
+      },
+      "id": "error-handler",
+      "name": "エラーハンドラー",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: Figma分析トリガー": {
+      "main": [
+        [
+          {
+            "node": "入力検証・前処理",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "入力検証・前処理": {
+      "main": [
+        [
+          {
+            "node": "Claude: デザイン分析",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: デザイン分析": {
+      "main": [
+        [
+          {
+            "node": "Claude レスポンス解析",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude レスポンス解析": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: 埋め込み生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: 埋め込み生成": {
+      "main": [
+        [
+          {
+            "node": "保存データ準備",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "保存データ準備": {
+      "main": [
+        [
+          {
+            "node": "Supabase: training_examples 保存",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Meilisearch データ準備",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase: training_examples 保存": {
+      "main": [
+        [
+          {
+            "node": "埋め込みデータ準備",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "埋め込みデータ準備": {
+      "main": [
+        [
+          {
+            "node": "Supabase: design_embeddings 保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase: design_embeddings 保存": {
+      "main": [
+        [
+          {
+            "node": "エラーチェック",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meilisearch データ準備": {
+      "main": [
+        [
+          {
+            "node": "Meilisearch: ドキュメント保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meilisearch: ドキュメント保存": {
+      "main": [
+        [
+          {
+            "node": "エラーチェック",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エラーチェック": {
+      "main": [
+        [
+          {
+            "node": "最終レスポンス構築",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "エラーハンドラー",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "最終レスポンス構築": {
+      "main": [
+        [
+          {
+            "node": "Webhook レスポンス",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エラーハンドラー": {
+      "main": [
+        [
+          {
+            "node": "Webhook レスポンス",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-notification-workflow"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "claude-automation",
+      "name": "Claude自動化"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "design-analysis",
+      "name": "デザイン分析"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}

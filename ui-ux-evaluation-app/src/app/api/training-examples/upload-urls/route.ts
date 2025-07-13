@@ -219,6 +219,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // レスポンスに評価データを含める（OpenAI APIベクトル化用）
     return NextResponse.json({
       success: true,
       message: `${result.savedCount}件の教師データを保存しました`,
@@ -227,7 +228,10 @@ export async function POST(request: NextRequest) {
       uploadMode,
       details: responseDetails,
       warnings: errors.length > 0 ? errors : undefined,
-      savedIds: saveResults.savedIds
+      savedIds: saveResults.savedIds,
+      // RAGベクトル化用のデータを追加
+      evaluationData: evaluationResults.results,
+      readyForVectorization: true
     });
 
   } catch (error) {

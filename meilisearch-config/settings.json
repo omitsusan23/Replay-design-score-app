@@ -1,0 +1,88 @@
+{
+  "uid": "design-embeddings",
+  "primaryKey": "id",
+  "searchableAttributes": [
+    "title",
+    "description", 
+    "content",
+    "genre",
+    "tags",
+    "claude_summary",
+    "ui_component_type"
+  ],
+  "displayedAttributes": [
+    "*"
+  ],
+  "filterableAttributes": [
+    "genre",
+    "ui_component_type",
+    "total_score",
+    "score_aesthetic",
+    "score_consistency", 
+    "score_hierarchy",
+    "score_usability",
+    "score_accessibility",
+    "created_at",
+    "processing_status",
+    "tags"
+  ],
+  "sortableAttributes": [
+    "total_score",
+    "score_aesthetic",
+    "score_consistency",
+    "score_hierarchy", 
+    "score_usability",
+    "score_accessibility",
+    "created_at"
+  ],
+  "rankingRules": [
+    "words",
+    "typo",
+    "proximity",
+    "attribute",
+    "sort",
+    "exactness"
+  ],
+  "stopWords": [
+    "の", "に", "は", "を", "が", "と", "で", "る", "て", "だ", "し", "た", "か", "ら", "な", "い", "よ", "う", "ね", "ば", "も", "や", "あ", "そ", "こ", "ど", "ま", "で",
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "must", "can", "shall"
+  ],
+  "synonyms": {
+    "UI": ["ユーザーインターフェース", "インターフェース", "interface"],
+    "UX": ["ユーザーエクスペリエンス", "体験", "experience"],
+    "ボタン": ["button", "btn", "クリック"],
+    "フォーム": ["form", "入力", "input"],
+    "メニュー": ["menu", "ナビゲーション", "navigation", "nav"],
+    "カード": ["card", "アイテム", "item"],
+    "モーダル": ["modal", "ダイアログ", "dialog", "popup"],
+    "リスト": ["list", "一覧", "テーブル", "table"],
+    "ダッシュボード": ["dashboard", "ダッシュ", "管理画面"],
+    "チャット": ["chat", "メッセージ", "message", "会話"],
+    "レスポンシブ": ["responsive", "モバイル", "mobile", "タブレット", "tablet"],
+    "アクセシビリティ": ["accessibility", "a11y", "バリアフリー"],
+    "デザイン": ["design", "設計", "見た目", "外観"],
+    "レイアウト": ["layout", "配置", "構成"],
+    "配色": ["color", "カラー", "色"],
+    "タイポグラフィ": ["typography", "フォント", "font", "文字"]
+  },
+  "typoTolerance": {
+    "enabled": true,
+    "minWordSizeForTypos": {
+      "oneTypo": 4,
+      "twoTypos": 8
+    },
+    "disableOnWords": [],
+    "disableOnAttributes": []
+  },
+  "faceting": {
+    "maxValuesPerFacet": 100,
+    "sortFacetValuesBy": {
+      "*": "count"
+    }
+  },
+  "pagination": {
+    "maxTotalHits": 1000
+  },
+  "searchCutoffMs": 150,
+  "distinctAttribute": null
+}

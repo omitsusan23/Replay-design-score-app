@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { CloudArrowUpIcon, PhotoIcon, LinkIcon } from '@heroicons/react/24/outline';
+import { CloudArrowUpIcon, PhotoIcon, LinkIcon, CpuChipIcon } from '@heroicons/react/24/outline';
+import { toast } from 'react-hot-toast';
 
 interface UISubmissionFormProps {
   onSubmit: (data: FormData) => void;
@@ -15,6 +16,8 @@ export default function UISubmissionForm({ onSubmit, isLoading = false }: UISubm
   const [figmaLink, setFigmaLink] = useState('');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [submitType, setSubmitType] = useState<'image' | 'figma'>('image');
+  const [enableRAG, setEnableRAG] = useState(true);
+  const [processingStage, setProcessingStage] = useState<'idle' | 'evaluating' | 'vectorizing' | 'completed'>('idle');
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
@@ -26,7 +29,7 @@ export default function UISubmissionForm({ onSubmit, isLoading = false }: UISubm
     }
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const formData = new FormData();
@@ -40,7 +43,73 @@ export default function UISubmissionForm({ onSubmit, isLoading = false }: UISubm
       formData.append('image', uploadedFile);
     }
 
-    onSubmit(formData);
+    try {
+      // 1. 通常のAI評価を実行
+      setProcessingStage('evaluating');
+      toast.loading('AI評価を実行中...', { id: 'evaluation' });
+      
+      onSubmit(formData);
+      
+      // 2. RAG機能が有効な場合、ベクトル化を実行
+      if (enableRAG && uploadedFile) {
+        setProcessingStage('vectorizing');
+        toast.loading('OpenAI埋め込みベクトル生成中...', { id: 'evaluation' });
+        
+        // 画像をSupabase Storageにアップロード
+        const uploadFormData = new FormData();
+        uploadFormData.append('files', uploadedFile);
+        uploadFormData.append('projectName', title);
+        
+        const uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          body: uploadFormData
+        });
+        
+        if (!uploadResponse.ok) {
+          throw new Error('画像アップロードに失敗しました');
+        }
+        
+        const uploadData = await uploadResponse.json();
+        const imageUrls = uploadData.urls || [];
+        
+        if (imageUrls.length > 0) {
+          // RAGベクトル化APIを呼び出し
+          const ragResponse = await fetch('/api/generate-embeddings', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              projectName: title,
+              imageUrls: imageUrls,
+              uploadMode: 'single',
+              additionalContext: {
+                description: description,
+                figmaLink: figmaLink,
+                submitType: submitType
+              }
+            })
+          });
+          
+          if (!ragResponse.ok) {
+            throw new Error('RAGベクトル化に失敗しました');
+          }
+          
+          const ragData = await ragResponse.json();
+          toast.success(`✅ RAGベクトル化完了: ${ragData.results?.length || 0}件`, { id: 'evaluation' });
+          
+          console.log('RAGベクトル化結果:', ragData);
+        }
+      }
+      
+      setProcessingStage('completed');
+      toast.success('処理が完了しました！', { id: 'evaluation' });
+      
+    } catch (error) {
+      console.error('処理エラー:', error);
+      toast.error(`エラー: ${error instanceof Error ? error.message : 'Unknown error'}`, { id: 'evaluation' });
+      setProcessingStage('idle');
+    }
   };
 
   const isValid = title && description && (
@@ -166,6 +235,47 @@ export default function UISubmissionForm({ onSubmit, isLoading = false }: UISubm
             />
           </div>
         )}
+
+        {/* RAG機能の設定 */}
+        <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-2">
+              <CpuChipIcon className="w-5 h-5 text-blue-600" />
+              <span className="text-sm font-medium text-gray-700">RAG学習データ生成</span>
+            </div>
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                checked={enableRAG}
+                onChange={(e) => setEnableRAG(e.target.checked)}
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <span className="ml-2 text-sm text-gray-600">有効</span>
+            </label>
+          </div>
+          <p className="text-xs text-gray-600">
+            有効にすると、評価後にOpenAI text-embedding-3-largeを使用してベクトル化し、
+            将来のRAG検索で活用できる学習データとして保存されます。
+          </p>
+          
+          {/* 処理ステージの表示 */}
+          {processingStage !== 'idle' && (
+            <div className="mt-3 p-3 bg-white rounded border">
+              <div className="flex items-center space-x-2">
+                <div className="flex space-x-1">
+                  <div className={`w-2 h-2 rounded-full ${processingStage === 'evaluating' ? 'bg-blue-500 animate-pulse' : processingStage === 'completed' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${processingStage === 'vectorizing' ? 'bg-blue-500 animate-pulse' : processingStage === 'completed' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${processingStage === 'completed' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                </div>
+                <span className="text-xs text-gray-600">
+                  {processingStage === 'evaluating' && 'AI評価中...'}
+                  {processingStage === 'vectorizing' && 'OpenAI ベクトル化中...'}
+                  {processingStage === 'completed' && '処理完了'}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="pt-4">
           <button
